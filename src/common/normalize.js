@@ -348,20 +348,34 @@ function attachOrphans(courses, orphans) {
       target.categories = categories;
       target.approximate = true;
     } else if (target) {
-      // The course already has a weighted structure; keep it authoritative and
-      // add only assignments it did not already know about.
-      const other = (target.categories || []).find((c) => c.name === 'Other assignments');
-      const extra = categories.flatMap((c) => c.assignments);
-      if (other) other.assignments.push(...extra);
-      else {
-        target.categories.push({
-          id: hashId(courseId, 'other'),
-          name: 'Other assignments',
-          weight: null,
-          earned: 0,
-          possible: 0,
-          assignments: extra,
-        });
+      // The course already has a real (often weighted) structure. Fold each
+      // orphan into the existing category with the same name where possible.
+      // Anything left over goes into a bucket flagged excludeFromGrade, because
+      // an unweighted bucket sitting alongside weighted ones would otherwise
+      // break the weighted calculation and silently drag the grade down.
+      const leftovers = [];
+      for (const group of categories) {
+        const match = (target.categories || []).find(
+          (c) => c.name.toLowerCase() === group.name.toLowerCase(),
+        );
+        if (match) match.assignments.push(...group.assignments);
+        else leftovers.push(...group.assignments);
+      }
+
+      if (leftovers.length) {
+        const other = (target.categories || []).find((c) => c.excludeFromGrade);
+        if (other) other.assignments.push(...leftovers);
+        else {
+          target.categories.push({
+            id: hashId(courseId, 'other'),
+            name: 'Other assignments',
+            weight: null,
+            earned: 0,
+            possible: 0,
+            excludeFromGrade: true,
+            assignments: leftovers,
+          });
+        }
       }
     } else {
       course.gradingTasks.push({
@@ -457,12 +471,32 @@ export function extract(payloads) {
   const sources = [];
   const consumed = new Set();
 
+  // Field names only, never values. Districts differ in what they call things,
+  // and guessing at key names is how the reported-grade bug happened. This makes
+  // a mismatch diagnosable from a copy-paste instead of from speculation.
+  const sampleKeys = {};
+  const noteKeys = (label, o) => {
+    if (!sampleKeys[label] && isObj(o)) sampleKeys[label] = Object.keys(o).sort();
+  };
+
   for (const p of payloads) {
     if (!p || !p.json) continue;
     let touched = false;
 
     walk(p.json, (o) => {
-      if (looksLikeCourse(o)) { courses.push(toCourse(o, consumed)); touched = true; return; }
+      if (looksLikeAssignment(o)) noteKeys('assignment', o);
+      if (looksLikeCourse(o)) {
+        noteKeys('course', o);
+        const rawTask = (o.gradingTasks || o.gradingTaskList || o.grades || [])[0];
+        if (rawTask) {
+          noteKeys('gradingTask', rawTask);
+          const rawCat = (rawTask.categories || rawTask.categoryList || rawTask.groups || [])[0];
+          if (rawCat) noteKeys('category', rawCat);
+        }
+        courses.push(toCourse(o, consumed));
+        touched = true;
+        return;
+      }
       if (looksLikeTranscriptRow(o)) { transcript.push(toTranscriptRow(o)); touched = true; return; }
       if (looksLikeScheduleRow(o)) { schedule.push(toScheduleRow(o)); touched = true; return; }
 
@@ -542,6 +576,7 @@ export function extract(payloads) {
     student,
     gpaSummary,
     displayOptions,
+    sampleKeys,
     enrollments: uniqueBy(enrollments, (e) => e.enrollmentID),
     documents: uniqueBy(documents, (d) => d.url),
     courses: merged,
@@ -563,6 +598,7 @@ export function mergeDataset(oldData, fresh) {
     student: fresh.student ?? oldData.student,
     gpaSummary: fresh.gpaSummary ?? oldData.gpaSummary,
     displayOptions: fresh.displayOptions ?? oldData.displayOptions,
+    sampleKeys: { ...(oldData.sampleKeys || {}), ...(fresh.sampleKeys || {}) },
     fetchedAt: { ...(oldData.fetchedAt || {}), ...(fresh.fetchedAt || {}) },
     enrollments: uniqueBy(
       [...(fresh.enrollments || []), ...(oldData.enrollments || [])], (e) => e.enrollmentID),

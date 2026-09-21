@@ -381,6 +381,52 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
         conversations.clear();
         return { ok: true };
 
+      case 'ui:diagnostic': {
+        // Structure only: field names, weights, counts and percentages.
+        // No assignment titles, no course-independent identifiers, no student
+        // or teacher names - safe to paste into a bug report.
+        const [settings, data, snapshots] = await Promise.all([
+          getSettings(), getData(), getSnapshots(),
+        ]);
+        if (!data) return { ok: false, error: 'no data yet' };
+        const report = analyze(data, settings, snapshots);
+        return {
+          ok: true,
+          diagnostic: {
+            generatedAt: new Date().toISOString(),
+            fieldNamesSeen: data.sampleKeys || {},
+            endpointsFetched: Object.keys(data.fetchedAt || {}),
+            districtFeatureFlags: data.displayOptions
+              ? Object.fromEntries(Object.entries(data.displayOptions).filter(([, v2]) => v2 === false))
+              : null,
+            counts: {
+              courses: (data.courses || []).length,
+              schedule: (data.schedule || []).length,
+              transcriptRows: (data.transcript || []).length,
+              documents: (data.documents || []).length,
+              enrollments: (data.enrollments || []).length,
+            },
+            courses: report.courses.map((c) => ({
+              rigor: c.rigor,
+              icReportedPercent: c.percent,
+              icReportedScore: c.reportedByIC,
+              locallyComputedPercent: c.computedPercent,
+              drift: c.driftFromIC,
+              method: c.method,
+              approximate: c.approximate,
+              gradedAssignments: c.trend.n,
+              missing: c.missing.count,
+              categories: c.categories.map((k) => ({
+                weightShare: k.weightShare,
+                percent: k.percent,
+                possible: k.possible,
+                graded: k.graded,
+              })),
+            })),
+          },
+        };
+      }
+
       case 'ui:exportData': {
         const [settings, data, snapshots, analyses] = await Promise.all([
           getSettings(), getData(), getSnapshots(), getAnalyses(),

@@ -96,7 +96,13 @@ const rChem = report.courses.find((c) => c.name === 'Honors Chemistry');
 //   = 50.1 + 16.667 + 13.5 = 80.267
 check('AP Calculus percent', rCalc.percent, 80.27, 0.02);
 check('AP Calculus letter', rCalc.letter, 'B-');
-check('AP Calculus method', rCalc.method, 'weighted');
+// IC reported 80.27 for this course, so that is the headline. Our own weighted
+// calculation lands on the same number, which is how we know the category math
+// is right without ever letting it override the gradebook.
+check('AP Calculus defers to the grade IC reported', rCalc.method, 'reported');
+check('AP Calculus weighted math independently agrees', rCalc.computedPercent, 80.27, 0.02);
+check('so there is no drift to warn about', rCalc.driftFromIC, 0, 0.02);
+truthy('and the course is not flagged as disagreeing', rCalc.modelDisagrees === false);
 check('AP Calculus cushion above dropping', rCalc.cushionToDrop, 0.27, 0.02);
 check('AP Calculus gap to a B', rCalc.nextLetter.gap, 2.73, 0.02);
 

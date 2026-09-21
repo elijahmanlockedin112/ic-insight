@@ -60,7 +60,10 @@ export function computeTaskPercent(task, overrides = {}) {
     };
   });
 
-  const active = cats.filter((c) => c.possible > 0);
+  // Categories flagged excludeFromGrade hold assignments we recovered from
+  // listView that do not belong to any real category. They are shown, but they
+  // never participate in the grade.
+  const active = cats.filter((c) => c.possible > 0 && !c.excludeFromGrade);
   if (!active.length) {
     return task.reportedPercent != null
       ? { percent: task.reportedPercent, method: 'reported', categories: cats }
@@ -79,13 +82,17 @@ export function computeTaskPercent(task, overrides = {}) {
     return { percent: task.reportedPercent, method: 'reported', categories: cats, approximate: true };
   }
 
-  const useWeights = task.weighted && active.every((c) => c.weight !== null && c.weight > 0);
+  // Use every weighted category there is. Previously a single category without
+  // a weight made this check fail and flipped the whole course to total-points,
+  // which for a weighted gradebook reports a grade well below the real one.
+  const weightedCats = active.filter((c) => c.weight !== null && c.weight > 0);
+  const useWeights = task.weighted && weightedCats.length > 0;
 
   if (useWeights) {
-    const W = active.reduce((s, c) => s + c.weight, 0);
-    const percent = active.reduce((s, c) => s + c.weight * (c.earned / c.possible), 0) / W * 100;
+    const W = weightedCats.reduce((s, c) => s + c.weight, 0);
+    const percent = weightedCats.reduce((s, c) => s + c.weight * (c.earned / c.possible), 0) / W * 100;
     for (const c of cats) {
-      c.weightShare = c.weight && c.possible > 0 ? c.weight / W : 0;
+      c.weightShare = c.weight && c.possible > 0 && !c.excludeFromGrade ? c.weight / W : 0;
       // How many percentage points this category costs the overall grade.
       c.dragPoints = c.possible > 0 ? round(c.weightShare * (100 - c.percent), 2) : 0;
     }
@@ -383,8 +390,20 @@ export function analyze(data, settings, snapshots = []) {
     if (!task) continue;
 
     const computed = computeTaskPercent(task);
-    const percent = computed?.percent ?? task.reportedPercent ?? null;
+
+    // Infinite Campus's own figure always wins the headline. It accounts for
+    // dropped scores, curves, exemptions and weighting the API never exposes,
+    // so a locally recomputed number that disagrees with it is wrong, not
+    // more accurate. The computed value is kept for what-ifs and shown beside
+    // it when the two disagree.
+    const reported = task.reportedPercent;
+    const percent = reported ?? computed?.percent ?? null;
     if (percent === null) continue;
+
+    const computedPercent = computed?.percent ?? null;
+    const drift = reported !== null && reported !== undefined && computedPercent !== null
+      ? round(computedPercent - reported, 2)
+      : null;
 
     const letter = letterFor(percent, scale);
     const up = nextLetterUp(percent, scale);
@@ -419,8 +438,14 @@ export function analyze(data, settings, snapshots = []) {
       credits: course.credits,
       percent: round(percent, 2),
       letter,
-      method: computed?.method ?? 'reported',
+      method: reported !== null && reported !== undefined ? 'reported' : (computed?.method ?? 'reported'),
       approximate: Boolean(task.approximate),
+      computedPercent: round(computedPercent, 2),
+      // Big drift means our category model does not match the real gradebook.
+      // Surfaced rather than hidden, because it tells the student the what-if
+      // numbers below are estimates.
+      driftFromIC: drift,
+      modelDisagrees: drift !== null && Math.abs(drift) > 1.5,
       reportedByIC: task.reportedScore ?? null,
       cushionToDrop: cushion(percent, scale),
       nextLetter: up ? { letter: up.letter, atPercent: up.floor, gap: round(up.floor - percent, 2) } : null,

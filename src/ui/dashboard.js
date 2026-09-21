@@ -314,23 +314,60 @@ function renderCourses() {
       card.appendChild(wrap);
     }
 
-    // sparkline of recent assignments
-    if (c.trend.recent?.length) {
+    // Sparkline over EVERY graded assignment, not a tail of the last handful.
+    const series = c.trend.all?.length ? c.trend.all : (c.trend.recent || []);
+    if (series.length) {
       const wrap = el('div');
       wrap.style.margin = '10px 0';
       wrap.appendChild(el('div', 'small muted',
-        `Last ${c.trend.recent.length} graded — ${c.trend.direction}` +
-        (c.trend.last5Mean !== null ? ` (recent avg ${c.trend.last5Mean}%)` : '')));
+        `All ${series.length} graded — ${c.trend.direction}` +
+        (c.trend.last5Mean !== null ? ` (last 5 average ${c.trend.last5Mean}%)` : '')));
       const spark = el('div', 'spark');
-      for (const a of c.trend.recent) {
+      // Bars thin out as the term fills up so a long series still fits.
+      const width = series.length > 60 ? 2 : series.length > 30 ? 4 : 6;
+      for (const a of series) {
         const bar = el('i');
         bar.style.height = `${Math.max(2, Math.min(100, a.pct)) * 0.3}px`;
+        bar.style.width = `${width}px`;
         if (a.pct < 70) bar.className = 'bad';
-        bar.title = `${a.name}: ${a.earned}/${a.possible} (${a.pct}%)`;
+        bar.title = `${a.due || ''} ${a.name}: ${a.earned}/${a.possible} (${a.pct}%)`;
         spark.appendChild(bar);
       }
       wrap.appendChild(spark);
       card.appendChild(wrap);
+
+      // And the full list, so nothing is hidden behind a hover.
+      const det = el('details');
+      det.appendChild(el('summary', null, `All ${series.length} graded assignments`));
+      const table = el('table');
+      table.innerHTML = '<thead><tr><th>Due</th><th>Assignment</th><th>Category</th>' +
+                        '<th class="num">Score</th><th class="num">%</th></tr></thead>';
+      const body = el('tbody');
+      for (const a of series.slice().reverse()) {
+        const tr = el('tr');
+        tr.appendChild(el('td', 'small muted', a.due || ''));
+        tr.appendChild(el('td', null, a.name));
+        tr.appendChild(el('td', 'small muted', a.category || ''));
+        tr.appendChild(el('td', 'num', `${a.earned}/${a.possible}`));
+        const pctCell = el('td', 'num', String(a.pct));
+        if (a.pct < 70) pctCell.style.color = 'var(--danger)';
+        tr.appendChild(pctCell);
+        body.appendChild(tr);
+      }
+      table.appendChild(body);
+      const scroll = el('div', 'scroll');
+      scroll.appendChild(table);
+      det.appendChild(scroll);
+      card.appendChild(det);
+    }
+
+    // When our category model disagrees with the gradebook, say so rather than
+    // quietly presenting an estimate as the grade.
+    if (c.modelDisagrees) {
+      card.appendChild(el('div', 'notice warn small',
+        `Infinite Campus reports ${c.percent}%. Recomputing from the assignments gives ` +
+        `${c.computedPercent}%, so the category weights here are incomplete. The grade above ` +
+        `is IC's; the what-if numbers below are estimates.`));
     }
 
     // what-if
@@ -518,6 +555,23 @@ function renderRequests() {
 // ------------------------------------------------------------------- header
 
 $('settings').addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+$('diagnostic').addEventListener('click', async () => {
+  const btn = $('diagnostic');
+  const res = await send({ type: 'ui:diagnostic' });
+  if (!res?.ok) {
+    btn.textContent = res?.error || 'No data yet';
+    setTimeout(() => { btn.textContent = 'Copy diagnostic'; }, 2500);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(res.diagnostic, null, 2));
+    btn.textContent = 'Copied - no names included';
+  } catch {
+    btn.textContent = 'Could not copy';
+  }
+  setTimeout(() => { btn.textContent = 'Copy diagnostic'; }, 3000);
+});
 
 $('fetch').addEventListener('click', () => {
   const btn = $('fetch');
