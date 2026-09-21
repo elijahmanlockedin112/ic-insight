@@ -529,6 +529,49 @@ const countIn = (task) =>
   (task.categories || []).reduce((n, c) => n + (c.assignments?.length ?? 0), 0);
 
 /**
+ * Key names that mean a payload is an account or session record rather than
+ * gradebook data. Matched against key NAMES only - values are never inspected,
+ * logged or stored anywhere in this extension.
+ */
+/**
+ * Words that mark a key as belonging to an account or session record rather
+ * than to gradebook data. Compared word by word after splitting camelCase and
+ * snake_case, not as substrings - "mapping" contains "pin" and
+ * "pointsPossible" contains "ssn" backwards-ish, and neither is a credential.
+ */
+const SENSITIVE_WORDS = new Set([
+  'salt', 'password', 'passwd', 'pwd', 'secret', 'token', 'session', 'sessionid',
+  'credential', 'credentials', 'apikey', 'privatekey', 'totp', 'mfa', 'otp',
+  'piv', 'saml', 'ssn', 'pin', 'hash', 'auth', 'oauth', 'jwt', 'bearer', 'cookie',
+]);
+
+const keyWords = (key) =>
+  String(key)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.toLowerCase());
+
+/** True when a single key name looks credential-shaped. */
+export function isSensitiveKey(key) {
+  const words = keyWords(key);
+  if (words.some((w) => SENSITIVE_WORDS.has(w))) return true;
+  // api_key and private_key split into harmless halves; test the joined form too.
+  return SENSITIVE_WORDS.has(words.join(''));
+}
+
+/** True if any key anywhere in the payload looks credential-shaped. */
+export function hasSensitiveKeys(node, depth = 0) {
+  if (depth > 8 || node === null || typeof node !== 'object') return false;
+  if (Array.isArray(node)) return node.some((v) => hasSensitiveKeys(v, depth + 1));
+  for (const [k, v] of Object.entries(node)) {
+    if (isSensitiveKey(k)) return true;
+    if (v && typeof v === 'object' && hasSensitiveKeys(v, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
  * Key names and nesting of a payload, with no values. This is what makes a
  * district's actual response shape diagnosable instead of guessable.
  */
@@ -540,8 +583,16 @@ export function describeShape(node, depth = 0) {
   }
   if (node === null || typeof node !== 'object') return typeof node;
 
-  const out = { type: 'object', keys: Object.keys(node).sort(), nested: {} };
+  // Even in a structure dump, a credential-shaped key name is not recorded.
+  const out = {
+    type: 'object',
+    keys: Object.keys(node).filter((k) => !isSensitiveKey(k)).sort(),
+    nested: {},
+  };
+  const hidden = Object.keys(node).filter((k) => isSensitiveKey(k)).length;
+  if (hidden) out.withheldSensitiveKeys = hidden;
   for (const [k, v] of Object.entries(node)) {
+    if (isSensitiveKey(k)) continue;
     if (v && typeof v === 'object') out.nested[k] = describeShape(v, depth + 1);
   }
   if (!Object.keys(out.nested).length) delete out.nested;

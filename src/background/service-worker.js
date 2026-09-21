@@ -7,7 +7,8 @@ import {
   getData, saveData, getSnapshots, pushSnapshot,
   getNetlog, getAnalyses, pushAnalysis, clearEverything, storageFootprint,
 } from '../common/storage.js';
-import { extract, mergeDataset, describeShape } from '../common/normalize.js';
+import { extract, mergeDataset, describeShape, hasSensitiveKeys, isSensitiveKey }
+  from '../common/normalize.js';
 import { analyze, snapshotOf } from '../common/analysis.js';
 import { planRound, gapsIn, describeGaps, kindOfUrl } from './crawler.js';
 import { streamCompletion, listModels, PROVIDERS } from './providers.js';
@@ -20,13 +21,21 @@ const DEAD_KEY = 'deadUrls';
 
 async function ingest(origin, batch) {
   const payloads = [];
+  let rejected = 0;
   for (const item of batch || []) {
+    let json;
     try {
-      payloads.push({ url: item.url, ts: item.ts, json: JSON.parse(item.body) });
+      json = JSON.parse(item.body);
     } catch {
-      // Not JSON after all; drop it.
+      continue; // Not JSON after all.
     }
+    // Second line of defence. The content script already refuses these, but a
+    // session or account record must never reach storage even if one slips past
+    // an older content script that is still running in an open tab.
+    if (hasSensitiveKeys(json)) { rejected += 1; continue; }
+    payloads.push({ url: item.url, ts: item.ts, json });
   }
+  if (rejected) console.warn(`IC Insight: dropped ${rejected} payload(s) carrying account fields.`);
   if (!payloads.length) return { added: 0 };
 
   const fresh = extract(payloads);
@@ -36,7 +45,11 @@ async function ingest(origin, batch) {
   // Record when each kind of data last arrived, so a repeat Fetch can skip
   // anything still fresh instead of re-requesting the whole sequence.
   merged.fetchedAt = { ...(merged.fetchedAt || {}) };
-  merged.shapes = { ...(merged.shapes || {}) };
+  // Purge anything a previous build recorded before the content guard existed.
+  merged.shapes = Object.fromEntries(
+    Object.entries(merged.shapes || {})
+      .filter(([, shape]) => !JSON.stringify(shape).split('"').some(isSensitiveKey)),
+  );
   for (const p of payloads) {
     const kind = kindOfUrl(p.url);
     if (kind) merged.fetchedAt[kind] = p.ts || Date.now();

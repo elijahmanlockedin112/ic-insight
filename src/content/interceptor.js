@@ -36,10 +36,25 @@
     return ALLOW.test(u.pathname);
   }
 
+  /*
+   * A URL blocklist cannot be complete: districts expose endpoints we have
+   * never seen, and one of them turned out to return the signed-in user's
+   * account record - salt, TOTP token, session id - from a path that looked
+   * perfectly ordinary. So the body is inspected too, and any response that
+   * carries credential-shaped keys is dropped whole. Being over-eager here only
+   * costs a little grade data; being under-eager copies secrets.
+   */
+  const SENSITIVE_KEY = new RegExp(
+    '"[A-Za-z0-9_]*(?:salt|password|passwd|secret|totp|sessionid|session_id'
+    + '|apikey|api_key|privatekey|private_key|jwt|bearer|oauth)[A-Za-z0-9_]*"\s*:',
+    'i',
+  );
+
   function publish(url, text) {
     if (!text || text.length > MAX_BODY_BYTES) return;
     const trimmed = text.trim();
     if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return;
+    if (SENSITIVE_KEY.test(trimmed)) return;
     try {
       window.postMessage(
         { __icInsight: true, kind: 'capture', url, ts: Date.now(), body: trimmed },

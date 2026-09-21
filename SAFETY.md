@@ -78,9 +78,30 @@ The extension has no login code, stores no password, and cannot authenticate. It
 entirely on the session cookie your browser already holds because *you* signed in. If the
 session expires, it stops and asks you to sign in yourself.
 
-The passive observer explicitly refuses to read any response whose URL looks like
-authentication — login, logout, password, oauth, token, saml, sso, mfa, otp, verify,
-session. Those bodies are never copied, stored, or forwarded.
+The passive observer refuses any response whose URL looks like authentication — login,
+logout, password, oauth, token, saml, sso, mfa, otp, verify, session.
+
+**A URL blocklist is not sufficient on its own, and this was found the hard way.** A real
+district returned the signed-in user's account record — containing `salt`, `totpToken`,
+`sessionID` and password-state flags — from a path that looked perfectly ordinary and
+matched none of those words. The observer copied it, because nothing was checking what was
+actually in the response.
+
+So responses are now inspected by content as well:
+
+- The content script drops any body carrying credential-shaped JSON keys before it leaves
+  the page, using a cheap high-signal check in the hot path.
+- The service worker repeats the check, word-aware, before anything reaches storage — so a
+  payload cannot slip through via an older content script still running in an open tab.
+- Structure dumps used for debugging withhold credential-shaped key names entirely,
+  reporting only a count of how many were withheld.
+- Key names are compared word by word after splitting camelCase and snake_case, never as
+  substrings, so `mapping` and `pointsPossible` are not mistaken for credentials.
+- On upgrade, any structure recorded by an earlier build that contains such keys is purged
+  from storage.
+
+Being over-eager here costs a little grade data. Being under-eager copies secrets, so the
+checks are deliberately tilted toward dropping too much.
 
 ## 6. The honest part
 

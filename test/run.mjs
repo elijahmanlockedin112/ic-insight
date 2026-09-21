@@ -2,12 +2,13 @@
 // IC payload -> canonical dataset -> deterministic report.
 // Run: node test/run.mjs
 
-import { extract, assignmentCount } from '../src/common/normalize.js';
+import { extract, assignmentCount, describeShape, hasSensitiveKeys, isSensitiveKey }
+  from '../src/common/normalize.js';
 import { analyze } from '../src/common/analysis.js';
 import { DEFAULT_SETTINGS } from '../src/common/storage.js';
 import { buildBrief, redactReport, systemPrompt } from '../src/background/prompt.js';
 import { derivePrefixes, planRound } from '../src/background/crawler.js';
-import { allPayloads } from './fixtures.mjs';
+import { allPayloads, rosterPayload, listViewPayload } from './fixtures.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -264,6 +265,39 @@ for (const [label, key] of [['taskList', 'taskList'], ['gradeList', 'gradeList']
   truthy(`tasks under "${label}" are not reported as an estimate`,
     course && course.isEstimate === false);
 }
+
+// A real district returned the signed-in user's account record from a path the
+// URL blocklist did not cover. Credential-shaped payloads must be dropped on
+// content, and must never appear even in a structure dump.
+console.log('\n== credential safety ==');
+const accountPayload = {
+  status: 'success',
+  data: {
+    Header: { appName: 'campus', User: { personID: 1, firstName: 'A', lastName: 'B',
+                                         sessionID: 'abc', username: 'ab123' } },
+    UserAccount: { userID: 9, username: 'ab123', salt: 'xxx', totpToken: 'yyy',
+                   pwnedPassword: false, hashVersion: 2, isPasswordNull: false },
+  },
+};
+truthy('an account record is recognised as sensitive',
+  hasSensitiveKeys(accountPayload) === true);
+truthy('ordinary gradebook payloads are not',
+  hasSensitiveKeys(rosterPayload.json) === false &&
+  hasSensitiveKeys(listViewPayload.json) === false);
+
+const dumped = JSON.stringify(describeShape(accountPayload));
+truthy('a structure dump withholds credential-shaped key names',
+  !/salt|totpToken|sessionID|pwnedPassword|hashVersion/i.test(dumped));
+truthy('and records that some keys were withheld',
+  /withheldSensitiveKeys/.test(dumped));
+truthy('while still reporting the harmless structure',
+  /appName/.test(dumped));
+truthy('benign keys containing a sensitive word as a substring are kept',
+  !isSensitiveKey('mapping') && !isSensitiveKey('pointsPossible') &&
+  !isSensitiveKey('teacherDisplay') && !isSensitiveKey('assignmentName'));
+truthy('while real credential keys are caught regardless of casing',
+  isSensitiveKey('salt') && isSensitiveKey('totpToken') && isSensitiveKey('sessionID') &&
+  isSensitiveKey('pwnedPassword') && isSensitiveKey('hashVersion') && isSensitiveKey('api_key'));
 
 // ------------------------------------------------------------------ prompt
 
