@@ -309,6 +309,33 @@ function lv(id, name, courseName, sectionID, due, totalPoints, scorePoints, cate
   };
 }
 
+// The /campus/resources/portal/grades payload for the same section listView
+// knows about. It carries IC's authoritative weighted percentage but no
+// assignments, so a record-level dedupe would discard it in favour of the
+// assignment-rich listView stub - and the grade would be recomputed unweighted.
+export const gradesPayload = {
+  url: 'https://demo.infinitecampus.org/campus/resources/portal/grades?personID=987654&view=byCourse',
+  ts: Date.now(),
+  json: [
+    {
+      sectionID: 1004,
+      courseName: 'US History',
+      teacherDisplay: 'Whitfield, T',
+      periodName: '2',
+      termName: 'Q1',
+      gradingTasks: [
+        {
+          taskName: 'Grade',
+          termName: 'Q1',
+          groupWeighted: true,
+          progressScore: 'A',
+          progressPercent: 94.2,
+        },
+      ],
+    },
+  ],
+};
+
 export const allPayloads = [
   identityPayload,
   displayOptionsPayload,
@@ -317,4 +344,5 @@ export const allPayloads = [
   transcriptPayload,
   documentsPayload,
   listViewPayload,
+  gradesPayload,
 ];

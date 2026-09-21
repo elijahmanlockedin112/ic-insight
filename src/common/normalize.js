@@ -380,6 +380,63 @@ function attachOrphans(courses, orphans) {
   return courses;
 }
 
+
+/**
+ * Combine two records for the same section, field by field.
+ *
+ * The same course arrives from several endpoints with different strengths:
+ * `roster` and `grades` carry Infinite Campus's own reported percentage and the
+ * weighted category structure, while `listView` carries far more assignments but
+ * no weights. Picking one whole record and discarding the other loses whichever
+ * strength the loser had - and when that was the reported percentage, the grade
+ * got recomputed unweighted and came out lower than the student's real grade.
+ */
+function mergeCourses(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+
+  const prefer = (x, y) => (x !== null && x !== undefined && x !== '' ? x : y);
+
+  const tasks = new Map();
+  for (const task of [...(a.gradingTasks || []), ...(b.gradingTasks || [])]) {
+    const key = task.name || 'Grade';
+    const prev = tasks.get(key);
+    if (!prev) { tasks.set(key, { ...task }); continue; }
+
+    // Keep the richer category set, but never lose a reported grade.
+    const prevCount = countIn(prev);
+    const nextCount = countIn(task);
+    tasks.set(key, {
+      ...prev,
+      ...task,
+      categories: nextCount > prevCount ? task.categories : prev.categories,
+      weighted: prev.weighted || task.weighted,
+      // An approximate task stops being approximate once a weighted structure
+      // for the same task turns up.
+      approximate: Boolean(prev.approximate && task.approximate),
+      reportedPercent: prefer(prev.reportedPercent, task.reportedPercent),
+      reportedScore: prefer(prev.reportedScore, task.reportedScore),
+      termName: prefer(prev.termName, task.termName),
+    });
+  }
+
+  return {
+    ...a,
+    ...b,
+    name: prefer(a.name !== 'Unnamed course' ? a.name : null, b.name),
+    teacher: prefer(a.teacher, b.teacher),
+    period: prefer(a.period, b.period),
+    room: prefer(a.room, b.room),
+    termName: prefer(a.termName, b.termName),
+    courseNumber: prefer(a.courseNumber, b.courseNumber),
+    credits: prefer(a.credits, b.credits),
+    gradingTasks: [...tasks.values()],
+  };
+}
+
+const countIn = (task) =>
+  (task.categories || []).reduce((n, c) => n + (c.assignments?.length ?? 0), 0);
+
 export const assignmentCount = (course) =>
   (course.gradingTasks || []).reduce(
     (s, t) => s + (t.categories || []).reduce((n, c) => n + (c.assignments ? c.assignments.length : 0), 0), 0);
@@ -463,12 +520,11 @@ export function extract(payloads) {
     if (touched) sources.push({ url: p.url, ts: p.ts });
   }
 
-  // Merge duplicate courses (the same section often arrives from several
-  // endpoints); keep whichever copy carries the most assignment detail.
+  // Merge duplicate courses field by field. Never discard a whole record: one
+  // copy may hold the reported grade and another the assignment detail.
   const byCourse = new Map();
   for (const c of courses) {
-    const prev = byCourse.get(c.id);
-    if (!prev || assignmentCount(c) > assignmentCount(prev)) byCourse.set(c.id, c);
+    byCourse.set(c.id, mergeCourses(byCourse.get(c.id), c));
   }
 
   // Second pass: assignments that were never nested inside a course. These come
@@ -501,8 +557,7 @@ export function mergeDataset(oldData, fresh) {
   if (!oldData) return fresh;
   const byId = new Map((oldData.courses || []).map((c) => [c.id, c]));
   for (const c of fresh.courses) {
-    const prev = byId.get(c.id);
-    byId.set(c.id, !prev || assignmentCount(c) >= assignmentCount(prev) ? c : prev);
+    byId.set(c.id, mergeCourses(byId.get(c.id), c));
   }
   return {
     student: fresh.student ?? oldData.student,

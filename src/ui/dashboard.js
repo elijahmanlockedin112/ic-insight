@@ -185,6 +185,34 @@ function renderOverview() {
     actionsCard.appendChild(table);
   }
 
+  // --- documents (transcript, report cards) ---
+  const docsCard = $('docsCard');
+  docsCard.textContent = '';
+  docsCard.appendChild(el('h2', null, 'Transcript and report cards'));
+  const docs = state.documents || [];
+
+  if (!docs.length) {
+    docsCard.appendChild(el('p', 'small muted',
+      'No documents captured yet. Press "Fetch my data", or open Reports in your portal once.'));
+  } else {
+    docsCard.appendChild(el('p', 'small muted',
+      'Infinite Campus publishes these as files, not as data. There is no portal endpoint that ' +
+      'returns a parsed transcript, so the extension links them rather than reading grades out ' +
+      'of them - which is why cumulative GPA below covers only the terms the grades endpoint exposes.'));
+    for (const d of docs) {
+      const row = el('div', 'row');
+      row.style.marginBottom = '4px';
+      const link = el('a', null, d.name);
+      link.href = d.url.startsWith('http') ? d.url : (state.data?.origin || '') + d.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      row.appendChild(link);
+      if (d.type) row.appendChild(el('span', 'pill', String(d.type)));
+      if (d.endYear) row.appendChild(el('span', 'small muted', String(d.endYear)));
+      docsCard.appendChild(row);
+    }
+  }
+
   // --- history ---
   const historyCard = $('historyCard');
   historyCard.textContent = '';

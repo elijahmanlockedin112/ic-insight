@@ -316,8 +316,10 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
                 schedule: (data.schedule || []).length,
                 hasStudent: Boolean(data.student),
                 gaps: describeGaps(gapsIn(data)),
+                documents: data.documents || [],
               }
             : null,
+          documents: data?.documents || [],
           netlog,
           analyses: analyses.slice(0, 10).map((a) => ({
             ts: a.ts, model: a.model, provider: a.provider, question: a.question,

@@ -118,7 +118,9 @@ export function gapsIn(data) {
   if (!courses.some((c) => assignmentsIn(c) > 0)) gaps.push('assignments');
   if (!(data?.schedule || []).length) gaps.push('schedule');
   if (!(data?.documents || []).length) gaps.push('documents');
-  if (!data?.gpaSummary && !(data?.transcript || []).length) gaps.push('transcript');
+  // Deliberately NOT a gap: Infinite Campus has no endpoint that returns a
+  // parsed transcript. It is a generated file, so no amount of fetching
+  // produces transcript rows and reporting it as missing is misleading.
   return gaps;
 }
 
@@ -200,7 +202,6 @@ export function describeGaps(gaps) {
     assignments: 'assignment-level grades',
     schedule: 'class schedule',
     documents: 'report cards and transcript files',
-    transcript: 'transcript history',
   };
   return gaps.map((g) => labels[g] || g);
 }

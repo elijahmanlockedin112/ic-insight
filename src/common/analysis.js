@@ -256,8 +256,11 @@ export function assignmentTrend(task) {
     shift: round(shift, 1),
     zeroCount: graded.filter((a) => a.earned === 0).length,
     lateCount: graded.filter((a) => a.late).length,
+    // `recent` drives the dashboard sparkline only. `all` is what the model
+    // gets: sending a tail invited it to infer a grade from a partial sample.
     worst: graded.slice().sort((a, b) => a.pct - b.pct).slice(0, 5).map(sparse),
     recent: graded.slice(-8).map(sparse),
+    all: graded.map(sparse),
     categoryGaps,
   };
 }

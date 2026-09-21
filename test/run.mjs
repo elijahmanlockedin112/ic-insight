@@ -106,6 +106,24 @@ check('AP Calculus missing count', rCalc.missing.count, 1);
 check('AP Calculus grade if made up', rCalc.missing.allFixedPercent, 88.6, 0.02);
 check('AP Calculus gain if made up', rCalc.missing.allFixedDelta, 8.33, 0.02);
 
+// Regression, reported by a real user: "it only looks at the last 8 graded and
+// says that is my grade, when my real grade is higher".
+//
+// US History arrives twice - from the grades endpoint carrying IC's weighted
+// 94.2%, and from listView carrying three assignments worth 58/80 = 72.5%
+// unweighted. The old dedupe kept whichever record had more assignments, threw
+// the reported percentage away, and reported 72.5%. The grade must stay 94.2.
+const rHist = report.courses.find((c) => c.name === 'US History');
+check('a weighted reported grade survives merging with a listView stub',
+  rHist.percent, 94.2, 0.01);
+check('and is labelled as IC-reported rather than recomputed', rHist.method, 'reported');
+check('while the assignments are still attached for trend analysis',
+  rHist.trend.n, 3);
+truthy('the course keeps the teacher the grades payload supplied',
+  rHist.teacher === 'Whitfield, T');
+truthy('missing work is still detected on an approximate course',
+  rHist.missing.count === 1);
+
 // Total points: (45 + 38 + 50) / 150 = 88.667
 check('English percent', rEng.percent, 88.67, 0.02);
 check('English method', rEng.method, 'total-points');
@@ -154,7 +172,18 @@ truthy('course names preserved', asText.includes('AP Calculus AB'));
 
 const brief = buildBrief(redacted, settings);
 truthy('brief carries per-assignment detail',
-  brief.courses.some((c) => (c.trend.recentAssignments || []).length > 0));
+  brief.courses.some((c) => (c.trend.allGradedAssignments || []).length > 0));
+
+// Regression: the brief used to send only the last 8 graded assignments, which
+// both starved the analysis and invited the model to average them into a
+// "grade" that contradicted the real one.
+const calcBrief = brief.courses.find((c) => c.name === 'AP Calculus AB');
+check('every graded assignment reaches the model, not a tail',
+  calcBrief.trend.allGradedAssignments.length, calcBrief.trend.gradedCount);
+truthy('the brief marks when a grade is approximate',
+  brief.courses.every((c) => typeof c.gradeIsApproximate === 'boolean'));
+truthy('the system prompt forbids averaging assignments into a grade',
+  systemPrompt(settings).includes('gradePercent` IS the course grade'));
 truthy('brief carries ranked actions', brief.rankedActions.length > 0);
 truthy('brief carries goal math', brief.goalMath !== null);
 console.log(`  info brief size: ${(JSON.stringify(brief).length / 1024).toFixed(1)} KB`);
