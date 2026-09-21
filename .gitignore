@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.zip
+*.log
+
+# Exported grade data from the options page - never commit this
+ic-insight-*.json
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
