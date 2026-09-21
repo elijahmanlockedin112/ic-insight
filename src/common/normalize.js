@@ -167,6 +167,37 @@ function toCategory(c, ctx, consumed) {
   };
 }
 
+
+const LETTER_RE = /^[A-F][+-]?$/i;
+
+/**
+ * Find Infinite Campus's own grade on a grading task when it is not under one
+ * of the usual field names. Districts and Campus releases disagree about what
+ * to call it, and a wrong local recomputation is worse than none, so this looks
+ * at the task's OWN top-level keys only - never deeper, which would pick up an
+ * individual assignment's score by mistake.
+ */
+function sniffReportedPercent(t) {
+  let best = null;
+  for (const [key, value] of Object.entries(t)) {
+    if (!/percent|pct/i.test(key)) continue;
+    const n = num(value);
+    if (n === null || n < 0 || n > 150) continue;
+    // Prefer the field that names itself as the progress/current figure.
+    const rank = /progress|current|cumulative/i.test(key) ? 2 : 1;
+    if (!best || rank > best.rank) best = { rank, value: n };
+  }
+  return best ? best.value : null;
+}
+
+function sniffReportedScore(t) {
+  for (const [key, value] of Object.entries(t)) {
+    if (!/score|grade|letter/i.test(key)) continue;
+    if (typeof value === 'string' && LETTER_RE.test(value.trim())) return value.trim();
+  }
+  return null;
+}
+
 function toGradingTask(t, ctx, consumed) {
   const taskName = String(first(t, 'taskName', 'name', 'gradingTaskName') ?? 'Grade');
   const inner = { ...ctx, taskName };
@@ -197,9 +228,11 @@ function toGradingTask(t, ctx, consumed) {
     name: taskName,
     termName: first(t, 'termName', 'term', 'termID') ? String(first(t, 'termName', 'term', 'termID')) : null,
     isPosted: t.posted === true || t.progressScore != null || t.score != null,
-    reportedScore: first(t, 'score', 'progressScore', 'letterGrade'),
+    reportedScore:
+      first(t, 'score', 'progressScore', 'letterGrade', 'gradeLetter') ?? sniffReportedScore(t),
     reportedPercent:
-      num(first(t, 'percent', 'progressPercent', 'scorePercentage', 'progressScorePercent')),
+      num(first(t, 'percent', 'progressPercent', 'scorePercentage', 'progressScorePercent')) ??
+      sniffReportedPercent(t),
     weighted,
     categories,
   };

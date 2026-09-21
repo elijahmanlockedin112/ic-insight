@@ -440,6 +440,9 @@ export function analyze(data, settings, snapshots = []) {
       letter,
       method: reported !== null && reported !== undefined ? 'reported' : (computed?.method ?? 'reported'),
       approximate: Boolean(task.approximate),
+      // True only when IC reported nothing and the figure shown is our own
+      // unweighted estimate. The UI must never call this "your grade".
+      isEstimate: (reported === null || reported === undefined) && Boolean(task.approximate),
       computedPercent: round(computedPercent, 2),
       // Big drift means our category model does not match the real gradebook.
       // Surfaced rather than hidden, because it tells the student the what-if

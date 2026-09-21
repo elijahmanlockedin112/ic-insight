@@ -129,6 +129,25 @@ truthy('the course keeps the teacher the grades payload supplied',
   rHist.teacher === 'Whitfield, T');
 truthy('missing work is still detected on an approximate course',
   rHist.missing.count === 1);
+truthy('a course with a reported grade is NOT flagged an estimate',
+  rHist.isEstimate === false);
+
+// A listView-only course with no reported grade anywhere: the number shown is
+// our own unweighted estimate and must be labelled as such, never as the grade.
+const estimateOnly = analyze(
+  extract([{ url: 'https://demo.infinitecampus.org/campus/api/portal/assignment/listView?personID=1',
+             ts: Date.now(),
+             json: [{ objectSectionID: 1, assignmentName: 'Lab', courseName: 'Physics',
+                      sectionID: 4242, totalPoints: 10, scorePoints: '6', dueDate: '2025-09-01' },
+                    { objectSectionID: 2, assignmentName: 'Quiz', courseName: 'Physics',
+                      sectionID: 4242, totalPoints: 10, scorePoints: '7', dueDate: '2025-09-08' },
+                    { objectSectionID: 3, assignmentName: 'Test', courseName: 'Physics',
+                      sectionID: 4242, totalPoints: 10, scorePoints: '8', dueDate: '2025-09-15' }] }]),
+  settings, []);
+const phys = estimateOnly.courses.find((c) => c.name === 'Physics');
+truthy('a course IC reported no grade for is flagged as an estimate',
+  phys.isEstimate === true);
+check('and the estimate is the plain unweighted average', phys.percent, 70, 0.01);
 
 // Total points: (45 + 38 + 50) / 150 = 88.667
 check('English percent', rEng.percent, 88.67, 0.02);

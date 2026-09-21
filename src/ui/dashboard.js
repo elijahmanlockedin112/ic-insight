@@ -260,17 +260,19 @@ function renderCourses() {
 
     const right = el('div');
     right.style.textAlign = 'right';
-    right.appendChild(el('div', 'pct', `${c.percent}%`));
+    const pctEl = el('div', 'pct', c.isEstimate ? `~${c.percent}%` : `${c.percent}%`);
+    if (c.isEstimate) pctEl.style.color = 'var(--muted)';
+    right.appendChild(pctEl);
     const badges = el('div', 'row');
     badges.style.justifyContent = 'flex-end';
     badges.appendChild(el('span', 'pill', c.letter));
     if (c.rigor !== 'regular') badges.appendChild(el('span', 'pill', c.rigor.toUpperCase()));
     if (c.trend.direction === 'declining') badges.appendChild(el('span', 'pill bad', 'sliding'));
     if (c.trend.direction === 'improving') badges.appendChild(el('span', 'pill good', 'improving'));
-    if (c.approximate) {
-      const pill = el('span', 'pill warn', 'approx');
-      pill.title = 'Assignment detail came from listView, which carries no category ' +
-                   'weights. The headline grade is the one Infinite Campus reported.';
+    if (c.isEstimate) {
+      const pill = el('span', 'pill warn', 'estimate');
+      pill.title = 'Infinite Campus did not report a grade for this course, so this is an ' +
+                   'unweighted estimate from the assignments. It is not your official grade.';
       badges.appendChild(pill);
     }
     right.appendChild(badges);
@@ -359,6 +361,14 @@ function renderCourses() {
       scroll.appendChild(table);
       det.appendChild(scroll);
       card.appendChild(det);
+    }
+
+    if (c.isEstimate) {
+      card.appendChild(el('div', 'notice warn small',
+        'Infinite Campus did not report a grade for this course, so the figure above is an ' +
+        'unweighted estimate from the assignments we could find. Your real grade is almost ' +
+        'certainly different - check the portal. If IC does show a grade here, press ' +
+        '"Copy diagnostic" in the header so the field can be mapped.'));
     }
 
     // When our category model disagrees with the gradebook, say so rather than
