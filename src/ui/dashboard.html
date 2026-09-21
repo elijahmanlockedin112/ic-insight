@@ -57,6 +57,31 @@
     <div class="card" id="risksCard"></div>
     <div class="card" id="actionsCard"></div>
     <div class="card" id="docsCard"></div>
+
+    <div class="card">
+      <h2>Import your transcript</h2>
+      <p class="small muted">
+        Infinite Campus publishes transcripts as PDFs with no data endpoint behind them, so the
+        numbers have to be read out of the file. Once imported, cumulative GPA, credits and
+        year-over-year trends work normally and the AI can see them.
+      </p>
+      <div class="row wrap" style="margin-bottom:10px">
+        <button id="txFromPortal" class="primary">Pull it from the portal</button>
+        <label for="txFile" class="pill" style="cursor:pointer">Choose a PDF&hellip;</label>
+        <input id="txFile" type="file" accept="application/pdf,.pdf,.txt" style="display:none">
+      </div>
+      <details>
+        <summary>Or paste the text yourself</summary>
+        <p class="small muted" style="margin-top:8px">
+          Open the transcript in the portal, select all, copy, and paste below. This always works,
+          whatever the PDF is made of.
+        </p>
+        <textarea id="txText" rows="6" placeholder="Paste transcript text here"></textarea>
+        <button id="txParse" style="margin-top:8px">Parse this text</button>
+      </details>
+      <div id="txStatus" class="small" style="margin-top:10px"></div>
+      <div id="txPreview"></div>
+    </div>
     <div class="card" id="historyCard"></div>
   </section>
 

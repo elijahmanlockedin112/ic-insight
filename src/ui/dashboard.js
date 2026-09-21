@@ -529,6 +529,108 @@ async function renderAnalysisHistory() {
   });
 }
 
+// -------------------------------------------------------- transcript import
+
+let pendingRows = null;
+
+function txStatus(kind, text) {
+  const el2 = $('txStatus');
+  el2.className = `notice ${kind} small`;
+  el2.textContent = text;
+}
+
+function showParse(res) {
+  const box = $('txPreview');
+  box.textContent = '';
+  pendingRows = null;
+
+  const parsed = res.parsed;
+  if (!parsed || !parsed.rows.length) {
+    txStatus('bad', (parsed && parsed.warnings[0]) || 'Nothing could be parsed.');
+    return;
+  }
+
+  pendingRows = parsed.rows;
+  const s2 = res.summary;
+  txStatus('good',
+    `Found ${s2.courses} course(s), ${s2.credits} credits` +
+    (s2.years.length ? `, across ${s2.years.length} school year(s).` : '.') +
+    ' Check the rows below before saving.');
+
+  for (const w of parsed.warnings) box.appendChild(el('div', 'notice warn small', w));
+
+  const table = el('table');
+  table.innerHTML = '<thead><tr><th>Year</th><th>Grade</th><th>Course</th>' +
+                    '<th>Mark</th><th class="num">Credits</th><th>Weighting</th></tr></thead>';
+  const body = el('tbody');
+  for (const r of parsed.rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'small muted', r.endYear ? String(r.endYear) : '-'));
+    tr.appendChild(el('td', 'small muted', r.gradeLevel || '-'));
+    tr.appendChild(el('td', null, r.courseName));
+    tr.appendChild(el('td', null, r.score));
+    tr.appendChild(el('td', 'num', String(r.creditsEarned)));
+    tr.appendChild(el('td', 'small muted', r.rigor));
+    body.appendChild(tr);
+  }
+  table.appendChild(body);
+  const scroll = el('div', 'scroll');
+  scroll.appendChild(table);
+  box.appendChild(scroll);
+
+  const save = el('button', 'primary', `Save these ${parsed.rows.length} courses`);
+  save.style.marginTop = '10px';
+  save.addEventListener('click', async () => {
+    const done = await send({ type: 'ui:commitTranscript', rows: pendingRows });
+    if (done?.ok) {
+      txStatus('good', `Saved ${done.rows} transcript courses. Cumulative GPA now uses them.`);
+      box.textContent = '';
+      await load();
+    } else {
+      txStatus('bad', done?.error || 'Could not save.');
+    }
+  });
+  box.appendChild(save);
+
+  const discard = el('button', 'ghost', 'Discard');
+  discard.style.marginLeft = '8px';
+  discard.addEventListener('click', () => { box.textContent = ''; txStatus('info', 'Discarded.'); });
+  box.appendChild(discard);
+}
+
+$('txFromPortal').addEventListener('click', async () => {
+  txStatus('info', 'Fetching the transcript through the usual rate limits…');
+  const res = await send({ type: 'ui:importTranscriptFromPortal' });
+  if (!res?.ok) {
+    txStatus('bad', res?.error || 'Could not import.');
+    return;
+  }
+  showParse(res);
+});
+
+$('txParse').addEventListener('click', async () => {
+  const text = $('txText').value;
+  if (!text.trim()) { txStatus('warn', 'Paste the transcript text first.'); return; }
+  showParse(await send({ type: 'ui:parseTranscriptText', text }));
+});
+
+$('txFile').addEventListener('change', async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  txStatus('info', `Reading ${file.name}…`);
+
+  if (/\.txt$/i.test(file.name) || file.type === 'text/plain') {
+    showParse(await send({ type: 'ui:parseTranscriptText', text: await file.text() }));
+    return;
+  }
+
+  // PDFs are parsed here in the page, where the file already lives.
+  const { extractPdfText } = await import('../common/pdf-text.js');
+  const pdf = await extractPdfText(await file.arrayBuffer());
+  if (!pdf.ok) { txStatus('bad', pdf.reason); return; }
+  showParse(await send({ type: 'ui:parseTranscriptText', text: pdf.text }));
+});
+
 // ----------------------------------------------------------------- requests
 
 function renderRequests() {

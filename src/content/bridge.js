@@ -312,6 +312,70 @@
     }
   };
 
+  /**
+   * Fetch one document (a transcript PDF) under the same Governor rules as any
+   * other request: GET only, same origin, counted against the daily budget,
+   * refused during a cooldown. Returned as base64 because the worker needs the
+   * bytes and messages must be structured-cloneable.
+   */
+  async function fetchDocument(url, opts = {}) {
+    const cfg = { ...DEFAULTS, ...(opts.collection || {}) };
+    if (!safeToRequest(url)) return { ok: false, error: 'That URL is not on this portal.' };
+
+    const log = await readNetlog();
+    if (log.cooldownUntil > Date.now()) {
+      return { ok: false, error: 'Fetching is paused after a slow-down signal from the server.' };
+    }
+    if (log.countToday >= cfg.maxPerDay) {
+      return { ok: false, error: 'Daily request budget reached.' };
+    }
+
+    const gap = cfg.minGapMs + Math.random() * cfg.jitterMs;
+    const since = Date.now() - (log.lastRequestAt || 0);
+    if (since < gap) await sleep(gap - since);
+
+    const started = Date.now();
+    let res;
+    try {
+      res = await fetch(url, { method: 'GET', credentials: 'same-origin', redirect: 'follow' });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+
+    log.countToday += 1;
+    log.lastRequestAt = Date.now();
+    log.lastStatus = res.status;
+    log.history = [
+      { t: log.lastRequestAt, url: shortUrl(url), status: res.status, ms: Date.now() - started },
+      ...(log.history || []),
+    ].slice(0, 120);
+    await writeNetlog(log);
+
+    if (!res.ok) return { ok: false, error: `The portal returned HTTP ${res.status}.` };
+    if (res.redirected && /login|signin/i.test(res.url)) {
+      return { ok: false, error: 'The portal redirected to a login page - sign in and retry.' };
+    }
+
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > 12_000_000) return { ok: false, error: 'That document is too large.' };
+
+    return {
+      ok: true,
+      contentType: res.headers.get('content-type') || '',
+      base64: toBase64(new Uint8Array(buf)),
+      bytes: buf.byteLength,
+    };
+  }
+
+  function toBase64(bytes) {
+    let binary = '';
+    const CHUNK = 0x8000; // chunked, or a large file blows the argument stack
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+  }
+
   // ------------------------------------------------------- DOM last resort
 
   /**
@@ -376,6 +440,13 @@
       } catch (e) {
         respond({ ok: false, error: String(e) });
       }
+      return true;
+    }
+
+    if (msg.type === 'ic:fetchDocument') {
+      fetchDocument(msg.url, msg.settings || {})
+        .then(respond)
+        .catch((e) => respond({ ok: false, error: String(e) }));
       return true;
     }
 

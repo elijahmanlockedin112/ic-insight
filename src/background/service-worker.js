@@ -9,6 +9,8 @@ import {
 } from '../common/storage.js';
 import { extract, mergeDataset, describeShape, hasSensitiveKeys, isSensitiveKey }
   from '../common/normalize.js';
+import { extractPdfText } from '../common/pdf-text.js';
+import { parseTranscriptText, summariseParse } from '../common/transcript.js';
 import { analyze, snapshotOf } from '../common/analysis.js';
 import { planRound, gapsIn, describeGaps, kindOfUrl } from './crawler.js';
 import { streamCompletion, listModels, PROVIDERS } from './providers.js';
@@ -449,6 +451,61 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             })),
           },
         };
+      }
+
+      // Parse transcript TEXT, from a paste or a file the student supplied.
+      // Nothing is committed here - the student sees the parse and confirms.
+      case 'ui:parseTranscriptText': {
+        const parsed = parseTranscriptText(msg.text || '');
+        return { ok: true, parsed, summary: summariseParse(parsed) };
+      }
+
+      // Pull the transcript PDF from the portal and parse it. The fetch runs
+      // through the content-script Governor like every other request.
+      case 'ui:importTranscriptFromPortal': {
+        const settings = await getSettings();
+        const data = await getData();
+        const docs = data?.documents || [];
+        const doc = docs.find((d) => /transcript/i.test(`${d.name} ${d.type || ''}`));
+        if (!doc) {
+          return {
+            ok: false,
+            error: docs.length
+              ? 'No transcript found among your documents. Paste the text instead.'
+              : 'No documents captured yet. Press "Fetch my data" first.',
+          };
+        }
+
+        const found = await findPortalTab();
+        if (!found) return { ok: false, error: 'Open your Infinite Campus tab and try again.' };
+
+        const url = doc.url.startsWith('http') ? doc.url : found.info.origin + doc.url;
+        const res = await askTab(found.tab.id, {
+          type: 'ic:fetchDocument', url, settings: { collection: settings.collection },
+        }, 60_000);
+        if (!res.ok) return { ok: false, error: res.error || 'Could not fetch the transcript.' };
+
+        const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
+        const pdf = await extractPdfText(bytes);
+        if (!pdf.ok) return { ok: false, error: pdf.reason, extractedText: pdf.text || null };
+
+        const parsed = parseTranscriptText(pdf.text);
+        return {
+          ok: true, parsed, summary: summariseParse(parsed),
+          documentName: doc.name, bytes: res.bytes,
+        };
+      }
+
+      // Commit rows the student approved.
+      case 'ui:commitTranscript': {
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        if (!rows.length) return { ok: false, error: 'Nothing to save.' };
+        const data = (await getData()) || { courses: [], capturedAt: Date.now() };
+        data.transcript = rows;
+        data.transcriptSource = 'imported';
+        data.transcriptImportedAt = Date.now();
+        await saveData(data);
+        return { ok: true, rows: rows.length };
       }
 
       case 'ui:exportData': {

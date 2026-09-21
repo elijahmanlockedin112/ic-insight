@@ -156,16 +156,22 @@ own portal's traffic), `displayOptions` tells the extension which modules your d
 switched off so they're never requested, and any wrong path costs exactly one 404 that's
 remembered forever.
 
-**Your transcript is a file, not data.** Infinite Campus has no endpoint that returns a
-parsed transcript - no community reference implementation has one either, and
-[gilesgc's](https://github.com/gilesgc/Infinite-Campus-API) lists it as an unimplemented
-TODO. `report/all` publishes your transcript and report cards as downloadable documents, so
-the dashboard links them rather than reading grades out of them.
+**Your transcript is a PDF, so it has to be read out of the file.** Infinite Campus has no
+endpoint that returns a parsed transcript - no community reference implementation has one
+either, and [gilesgc's](https://github.com/gilesgc/Infinite-Campus-API) lists it as an
+unimplemented TODO. `report/all` publishes it as a downloadable document.
 
-The practical consequence: **cumulative GPA covers only the terms the grades endpoint
-exposes**, usually the current year. Multi-year GPA, year-over-year trends and credit
-totals will be thin or empty, and that is not a fetch failure - fetching harder cannot fix
-it. Getting real transcript analysis needs the file parsed, which is a separate feature.
+So the dashboard imports it. **Pull it from the portal** fetches the PDF through the same
+Governor as every other request, extracts the text and parses the course rows; **choose a
+PDF** does the same for a file you already have; and **paste the text** is the fallback that
+works on any layout. Nothing is saved until you have seen the parsed rows and pressed save.
+Once imported, cumulative GPA, credits, year-over-year trends and the AI all use it.
+
+Two honest limits. A scanned or image-only transcript has no text layer to read, and a PDF
+using subset fonts with custom character maps decodes to noise - both are detected and
+reported rather than passed off as a successful read, and both are what the paste box is
+for. And transcript layouts vary enough that the parser shows you every row it found before
+committing anything, so a bad parse is something you catch rather than something you inherit.
 
 **Weighted GPA is a local convention.** The +1.0 / +0.5 rule here is common, not universal.
 If your school does something else, the unweighted number is the trustworthy one.

@@ -8,6 +8,7 @@ import { analyze } from '../src/common/analysis.js';
 import { DEFAULT_SETTINGS } from '../src/common/storage.js';
 import { buildBrief, redactReport, systemPrompt } from '../src/background/prompt.js';
 import { derivePrefixes, planRound } from '../src/background/crawler.js';
+import { parseTranscriptText, summariseParse } from '../src/common/transcript.js';
 import { allPayloads, rosterPayload, listViewPayload } from './fixtures.mjs';
 
 let passed = 0;
@@ -343,6 +344,56 @@ console.log(`  info brief size: ${(JSON.stringify(brief).length / 1024).toFixed(
 const sys = systemPrompt(settings);
 truthy('system prompt mentions the chosen goal', sys.includes('Ivy'));
 truthy('system prompt forbids recomputation', sys.includes('Do not recompute'));
+
+
+// ------------------------------------------------------------- transcript
+
+console.log('\n== transcript import ==');
+const TRANSCRIPT = [
+  'Riverbend High School',
+  'Official Transcript',
+  'Student: Okafor, Jordan          Grade Level: 11',
+  '',
+  '2023-2024   Grade: 09',
+  'ENG101   English 9                      A-     1.000    3.700',
+  'MAT200   Algebra II                     B+     1.000    3.300',
+  'SCI110   Honors Biology                 B      1.000    3.000',
+  '',
+  '2024-2025   Grade: 10',
+  'MAT300   Pre-Calculus                   B+     1.000    3.300',
+  'SOC210   AP Human Geography             A      1.000    4.000',
+  'PED100   Physical Education             A      0.500    4.000',
+  '',
+  'Total Credits Earned: 5.500',
+  'Cumulative GPA: 3.509',
+].join('\n');
+
+const tx = parseTranscriptText(TRANSCRIPT);
+check('transcript rows parsed', tx.rows.length, 6);
+check('school years detected', tx.yearsSeen.length, 2);
+truthy('grade level carries down from its header',
+  tx.rows[0].gradeLevel === '9' && tx.rows[4].gradeLevel === '10');
+truthy('course rigor is detected from the title',
+  tx.rows.find((r) => r.courseName === 'AP Human Geography').rigor === 'ap' &&
+  tx.rows.find((r) => r.courseName === 'Honors Biology').rigor === 'honors');
+check('half-credit courses keep their credit value',
+  tx.rows.find((r) => r.courseName === 'Physical Education').creditsEarned, 0.5);
+truthy('summary lines are not mistaken for courses',
+  !tx.rows.some((r) => /total|cumulative/i.test(r.courseName)));
+check('credits total', summariseParse(tx).credits, 5.5, 0.001);
+
+// Imported rows must flow through the existing GPA maths untouched.
+const txReport = analyze({ courses: [], transcript: tx.rows }, settings, []);
+// 3.7 + 3.3 + 3.0 + 3.3 + 4.0 + (4.0 x 0.5) = 19.3 over 5.5 credits = 3.509
+check('imported transcript produces a cumulative GPA',
+  txReport.cumulative.unweighted, 3.509, 0.001);
+check('and splits it by school year', txReport.cumulative.byYear.length, 2);
+check('and totals the credits', txReport.cumulative.credits, 5.5, 0.001);
+
+// Garbage in, honest answer out.
+const empty = parseTranscriptText('just some prose with no courses in it at all');
+check('unparseable text yields no rows', empty.rows.length, 0);
+truthy('and says so rather than inventing rows', empty.warnings.length > 0);
 
 // ----------------------------------------------------------------- crawler
 
