@@ -164,6 +164,15 @@ export function buildBrief(report, settings) {
       whatIf: c.whatIf,
     })),
 
+    // Names and years only. The URLs carry the student's personID, and the
+    // files are PDFs the extension cannot read, so there is nothing else to send.
+    availableDocuments: {
+      note: 'Infinite Campus publishes these as PDF files. Their CONTENTS are not ' +
+            'available to you - only these titles. Do not infer grades, credits or ' +
+            'GPA from them.',
+      files: report.documents || [],
+    },
+
     rankedActions: report.actions,
     risks: report.risks,
     dayOverDay: report.history,
@@ -194,7 +203,14 @@ export function systemPrompt(settings) {
 
   return [
     'You are an academic coach for a high school student. You are reading a structured brief',
-    'generated from their own Infinite Campus gradebook, schedule and transcript.',
+    'generated from their own Infinite Campus gradebook and schedule.',
+    '',
+    'Transcript CONTENTS are not in the brief. Infinite Campus publishes transcripts as PDF',
+    'files and exposes no endpoint that returns their data, so `availableDocuments` lists only',
+    'titles. Cumulative GPA, where present, covers only the terms the grades endpoint returned -',
+    'usually the current year. Never present it as a full high-school GPA, never infer prior-year',
+    'grades or credits, and when the student needs multi-year figures, say the transcript PDF has',
+    'to be opened in the portal.',
     '',
     '## The student\'s goal',
     preset.label + (preset.brief ? ': ' + preset.brief : ''),
@@ -222,8 +238,10 @@ export function systemPrompt(settings) {
     '5. Be honest about reachability. If `goalMath` says a target GPA is not reachable, say so plainly',
     '   and pivot to the best achievable outcome. Never imply that a college admission is guaranteed or',
     '   predictable from grades - talk about what is in the student\'s control.',
-    '6. Say what you could not see. If `dataCoverage` shows missing transcript rows, no assignments for a',
-    '   course, or few graded items, name that limitation instead of guessing around it.',
+    '6. Say what you could not see. If `dataCoverage` shows zero transcript rows, no assignments for',
+    '   a course, or few graded items, name that limitation instead of guessing around it. Zero',
+    '   transcript rows is expected, not an error - say so plainly rather than implying the student',
+    '   did something wrong.',
     '7. Do not invent school policies (retake rules, late-work policy, weighting) that are not in the',
     '   brief. Where a policy would change the advice, tell the student to ask the teacher.',
     '',

@@ -247,6 +247,20 @@ truthy('the system prompt forbids averaging assignments into a grade',
   systemPrompt(settings).includes('gradePercent` IS the course grade'));
 truthy('brief carries ranked actions', brief.rankedActions.length > 0);
 truthy('brief carries goal math', brief.goalMath !== null);
+
+// Regression: 18 documents were being captured and none of them reached the
+// model, while the system prompt claimed it was reading "their transcript".
+truthy('the model is told which documents exist',
+  brief.availableDocuments.files.some((f) => /transcript/i.test(f.name)));
+truthy('document URLs are withheld (they carry the student personID)',
+  brief.availableDocuments.files.every((f) => f.url === undefined));
+truthy('and the model is told it cannot read their contents',
+  /CONTENTS are not/.test(brief.availableDocuments.note));
+truthy('document count reaches coverage', brief.dataCoverage.documentCount > 0);
+truthy('the system prompt no longer claims to have the transcript',
+  !systemPrompt(settings).includes('gradebook, schedule and transcript'));
+truthy('and explains that zero transcript rows is expected',
+  systemPrompt(settings).includes('expected, not an error'));
 console.log(`  info brief size: ${(JSON.stringify(brief).length / 1024).toFixed(1)} KB`);
 
 const sys = systemPrompt(settings);

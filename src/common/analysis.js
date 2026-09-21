@@ -506,8 +506,12 @@ export function analyze(data, settings, snapshots = []) {
       coursesWithAssignments: courseReports.filter((c) => c.trend.n > 0).length,
       transcriptRows: (data.transcript || []).length,
       scheduleRows: (data.schedule || []).length,
+      documentCount: (data.documents || []).length,
       capturedAt: data.capturedAt,
     },
+    documents: (data.documents || []).map((d) => ({
+      name: d.name, type: d.type, endYear: d.endYear,
+    })),
   };
 }
 
