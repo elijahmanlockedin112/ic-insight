@@ -40,11 +40,41 @@ const looksLikeAssignment = (o) =>
   (o.totalPoints !== undefined || o.pointsPossible !== undefined || o.scorePoints !== undefined ||
    o.score !== undefined || o.dueDate !== undefined);
 
+/**
+ * A grading task: the object holding a course's actual grade for a term.
+ * Matched structurally rather than by key name, because districts disagree
+ * about what to call both the object and the array holding it.
+ */
+const looksLikeGradingTask = (o) =>
+  isObj(o) &&
+  !looksLikeAssignment(o) &&
+  (o.taskName !== undefined || o.gradingTaskName !== undefined ||
+   o.taskID !== undefined || o.name !== undefined) &&
+  (o.score !== undefined || o.progressScore !== undefined ||
+   o.percent !== undefined || o.progressPercent !== undefined ||
+   o.letterGrade !== undefined || o.gradeLetter !== undefined ||
+   Array.isArray(o.categories) || Array.isArray(o.categoryList));
+
+/**
+ * The array of grading tasks on a course, whatever the district named it.
+ * Falls back to scanning the course's own arrays for one whose first element
+ * looks like a grading task - which is how a course keyed under an unexpected
+ * name still yields its real grade instead of falling back to an estimate.
+ */
+function findTaskArray(c) {
+  const known = c.gradingTasks ?? c.gradingTaskList ?? c.grades;
+  if (Array.isArray(known)) return known;
+  for (const [key, v] of Object.entries(c)) {
+    if (key === 'sectionPlacements' || key === 'assignments') continue;
+    if (Array.isArray(v) && v.length && looksLikeGradingTask(v[0])) return v;
+  }
+  return null;
+}
+
 const looksLikeCourse = (o) =>
   isObj(o) &&
   (o.courseName !== undefined || (o.name !== undefined && (o.sectionID !== undefined || o.courseID !== undefined))) &&
-  (Array.isArray(o.gradingTasks) || Array.isArray(o.gradingTaskList) ||
-   Array.isArray(o.grades) || Array.isArray(o.categories) || Array.isArray(o.standards));
+  (findTaskArray(o) !== null || Array.isArray(o.categories) || Array.isArray(o.standards));
 
 /**
  * A section object with no recognised grading-task array. The roster endpoint
@@ -257,7 +287,7 @@ function toCourse(c, consumed) {
     hashId(first(c, 'courseName', 'name'), first(c, 'courseNumber')));
   const name = String(first(c, 'courseName', 'name') ?? 'Unnamed course');
 
-  const rawTasks = c.gradingTasks ?? c.gradingTaskList ?? c.grades ?? null;
+  const rawTasks = findTaskArray(c);
   let tasks = Array.isArray(rawTasks)
     ? rawTasks.map((t) => toGradingTask(t, { courseId }, consumed))
     : [];

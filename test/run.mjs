@@ -148,6 +148,17 @@ const phys = estimateOnly.courses.find((c) => c.name === 'Physics');
 truthy('a course IC reported no grade for is flagged as an estimate',
   phys.isEstimate === true);
 check('and the estimate is the plain unweighted average', phys.percent, 70, 0.01);
+check('an unreported course is kept out of the GPA entirely',
+  estimateOnly.termGpa.excludedNoReportedGrade, 1);
+check('so that GPA reports nothing rather than a fabricated one',
+  estimateOnly.termGpa.unweighted, null);
+
+// The model must never receive an estimate in the grade field.
+const estBrief = buildBrief(estimateOnly, settings).courses[0];
+check('the brief sends no grade for an unreported course', estBrief.gradePercent, null);
+check('and no letter either', estBrief.letter, null);
+check('the estimate is quarantined in its own field',
+  estBrief.assignmentAverageEstimate, 70, 0.01);
 
 // Total points: (45 + 38 + 50) / 150 = 88.667
 check('English percent', rEng.percent, 88.67, 0.02);
@@ -221,6 +232,38 @@ truthy('and its period', String(bio.period) === '4');
 check('and merges the listView assignments rather than duplicating the course',
   assignmentCount(bio), 2);
 check('while still appearing in the schedule', rosterShellData.schedule.length, 1);
+
+// The grades endpoint is the only thing carrying the school's real percentage,
+// and districts disagree about what to call the array holding it. If the key
+// name is unrecognised the whole course falls back to an unweighted estimate,
+// which is what a real district's diagnostic showed. Task discovery is now
+// structural, so an unexpected key name still yields the real grade.
+console.log('\n== grading tasks under unexpected keys ==');
+for (const [label, key] of [['taskList', 'taskList'], ['gradeList', 'gradeList'],
+                            ['termGrades', 'termGrades']]) {
+  const payload = [{
+    enrollmentID: 55501,
+    // Nested one level down, as the grades endpoint commonly returns.
+    courses: [{
+      sectionID: 296599,
+      courseName: 'Biology',
+      [key]: [{
+        taskName: 'Quarter Grade',
+        termName: 'Q1',
+        progressScore: 'A-',
+        progressPercent: 91.4,
+      }],
+    }],
+  }];
+  const got = extract([{ url: 'https://x.infinitecampus.org/campus/resources/portal/grades?personID=1',
+                         ts: Date.now(), json: payload }]);
+  const rep = analyze(got, settings, []);
+  const course = rep.courses[0];
+  truthy(`tasks under "${label}" yield the school's real grade`,
+    course && course.percent === 91.4 && course.method === 'reported');
+  truthy(`tasks under "${label}" are not reported as an estimate`,
+    course && course.isEstimate === false);
+}
 
 // ------------------------------------------------------------------ prompt
 

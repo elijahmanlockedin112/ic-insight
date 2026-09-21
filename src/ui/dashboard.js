@@ -260,12 +260,18 @@ function renderCourses() {
 
     const right = el('div');
     right.style.textAlign = 'right';
-    const pctEl = el('div', 'pct', c.isEstimate ? `~${c.percent}%` : `${c.percent}%`);
-    if (c.isEstimate) pctEl.style.color = 'var(--muted)';
+    const pctEl = el('div', 'pct', c.isEstimate ? 'Not posted' : `${c.percent}%`);
+    if (c.isEstimate) {
+      pctEl.style.color = 'var(--muted)';
+      pctEl.style.fontSize = '14px';
+    }
     right.appendChild(pctEl);
+    if (c.isEstimate) {
+      right.appendChild(el('div', 'small muted', `assignments average ${c.percent}%`));
+    }
     const badges = el('div', 'row');
     badges.style.justifyContent = 'flex-end';
-    badges.appendChild(el('span', 'pill', c.letter));
+    if (!c.isEstimate) badges.appendChild(el('span', 'pill', c.letter));
     if (c.rigor !== 'regular') badges.appendChild(el('span', 'pill', c.rigor.toUpperCase()));
     if (c.trend.direction === 'declining') badges.appendChild(el('span', 'pill bad', 'sliding'));
     if (c.trend.direction === 'improving') badges.appendChild(el('span', 'pill good', 'improving'));
@@ -366,9 +372,9 @@ function renderCourses() {
     if (c.isEstimate) {
       card.appendChild(el('div', 'notice warn small',
         'Infinite Campus did not report a grade for this course, so the figure above is an ' +
-        'unweighted estimate from the assignments we could find. Your real grade is almost ' +
-        'certainly different - check the portal. If IC does show a grade here, press ' +
-        '"Copy diagnostic" in the header so the field can be mapped.'));
+        'unweighted estimate from the assignments we could find, and it is left out of your ' +
+        'GPA rather than shifting it. Check the portal for the real number. If IC does show a ' +
+        'grade for this course, press "Copy diagnostic" in the header so the field can be mapped.'));
     }
 
     // When our category model disagrees with the gradebook, say so rather than

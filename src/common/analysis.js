@@ -292,8 +292,12 @@ export function gpaFromCourses(courses, settings) {
   let credits = 0;
 
   const rows = [];
+  let excluded = 0;
   for (const c of courses) {
     if (c.percent === null || c.percent === undefined) continue;
+    // A course the school reported no grade for would otherwise contribute a
+    // letter derived from our own unweighted estimate, quietly moving the GPA.
+    if (c.isEstimate) { excluded += 1; continue; }
     const letter = letterFor(c.percent, scale);
     const base = GPA_POINTS[letter] ?? 0;
     const rigor = settings.rigorOverrides?.[c.id] ?? c.rigor ?? 'regular';
@@ -311,6 +315,7 @@ export function gpaFromCourses(courses, settings) {
     weighted: credits ? round(totalWPts / credits, 3) : null,
     credits,
     rows,
+    excludedNoReportedGrade: excluded,
   };
 }
 

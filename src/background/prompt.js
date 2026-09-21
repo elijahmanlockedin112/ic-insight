@@ -131,8 +131,11 @@ export function buildBrief(report, settings) {
       name: c.name,
       rigor: c.rigor,
       term: c.term,
-      gradePercent: c.percent,
-      letter: c.letter,
+      // null when the school reported no grade. The assignment average is kept
+      // separately so it can never be mistaken for the real figure.
+      gradePercent: c.isEstimate ? null : c.percent,
+      assignmentAverageEstimate: c.isEstimate ? c.percent : null,
+      letter: c.isEstimate ? null : c.letter,
       howComputed: c.method,
       // The grade is an unweighted estimate, not the school's figure.
       gradeIsEstimateNotOfficial: c.isEstimate || false,
@@ -229,8 +232,9 @@ export function systemPrompt(settings) {
     '   itself and is authoritative. If `gradeIsApproximate` is true, the category weights were not',
     '   available, so say the breakdown is approximate rather than presenting it as exact. If',
     '   `gradeIsEstimateNotOfficial` is true, the school reported no grade at all and the figure is',
-    '   our own unweighted estimate - call it an estimate every time you mention it, and tell the',
-    '   student to check the portal for the real number rather than acting on it.',
+    '   our own unweighted estimate. In that case `gradePercent` and `letter` are null and the',
+    '   figure sits in `assignmentAverageEstimate`. Never present that as the grade: say the school',
+    '   has not posted one and point the student at the portal.',
     '3. Be specific. "Study more" is useless. Name the course, the category or the actual assignment,',
     '   and say what it is worth. The brief gives you per-assignment detail precisely so you can do this.',
     '4. Rank by leverage. The brief includes `rankedActions` with the GPA effect of each move already',
