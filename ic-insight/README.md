@@ -1,7 +1,5 @@
 # IC Insight
 
-[![test](https://github.com/elijahmanlockedin112/ic-insight/actions/workflows/test.yml/badge.svg)](https://github.com/elijahmanlockedin112/ic-insight/actions/workflows/test.yml)
-
 A Chrome extension that reads your own Infinite Campus grades, schedule and transcript,
 computes what's actually going on with them, and coaches you toward a goal you set — using
 an AI model and API key you choose.
@@ -115,52 +113,19 @@ src/ui/                 popup, options, dashboard
 test/run.mjs            53 checks over synthetic IC-shaped payloads.
 ```
 
-## Development
-
-No build step and no dependencies — the `src/` tree is exactly what Chrome loads. Node is
-only used for the checks and the release zip.
-
-```bash
-npm run verify   # check it will load unpacked, then run the tests
-npm run check    # syntax, manifest references, MV3 CSP rules, missing files
-npm test         # 53 assertions over synthetic IC-shaped payloads
-npm run icons    # regenerate icons/*.png
-npm run build    # dist/ic-insight-v<version>.zip, runtime files only
-```
-
-`npm run check` catches the things that make Chrome refuse to load an extension: a manifest
-reference to a file that isn't there, an inline `<script>` or `onclick=` attribute that MV3's
-CSP blocks, a malformed version string. It also asserts the `alarms` permission is *absent*,
-so a future change can't quietly hand the extension the ability to poll a school server on a
-timer.
-
-`npm test` covers parsing, weighted and total-points grade computation, the points-needed
-inversion, missing-work impact, GPA from transcript, redaction, and the crawler's dead-path
-rule — everything that doesn't need a browser. CI runs both on every push.
-
-After editing anything under `src/`, press the reload icon on `chrome://extensions`. Changes
-to content scripts also need a refresh of the Infinite Campus tab.
+Run the tests with `node test/run.mjs`. They cover parsing, weighted and total-points grade
+computation, the points-needed inversion, missing-work impact, GPA from transcript,
+redaction, and the crawler's dead-path rule — everything that doesn't need a browser.
 
 ---
 
 ## Limitations worth knowing
 
-**The endpoints are community-confirmed, not officially supported.** The paths in
-`crawler.js` are the Campus Student portal endpoints verified against live districts by
-[infinitecampus-mcp](https://github.com/chrischall/infinitecampus-mcp),
-[ic_parent_api](https://github.com/schwartzpub/ic_parent_api) and
-[Infinite-Campus-API](https://github.com/gilesgc/Infinite-Campus-API). None of them are
-publicly supported interfaces, so a district on an older or customised Campus release can
-still differ. Three things keep that cheap: only the district prefix is inferred (from your
-own portal's traffic), `displayOptions` tells the extension which modules your district has
-switched off so they're never requested, and any wrong path costs exactly one 404 that's
-remembered forever.
-
-**Your transcript is a PDF, not data.** The portal has no endpoint that returns a parsed
-transcript. `report/all` lists your transcript and report cards as downloadable files, so the
-extension surfaces the link but cannot read grades out of it. Cumulative GPA therefore comes
-from whatever prior-term data the grades endpoint exposes, which for most districts is the
-current year only. If your cumulative GPA looks wrong or missing, that's why.
+**The endpoint list is educated guessing.** IC API paths vary by district and release, and
+these were written without access to a live instance. The design absorbs that: the crawler
+learns your real base path from traffic your portal generates, and each wrong guess costs
+exactly one 404 that's then remembered forever. But your first **Fetch my data** may find
+less than a later one, after the extension has watched you browse.
 
 **Weighted GPA is a local convention.** The +1.0 / +0.5 rule here is common, not universal.
 If your school does something else, the unweighted number is the trustworthy one.

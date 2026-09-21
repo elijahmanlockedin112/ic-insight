@@ -1,75 +1,75 @@
 // Plans what to request. The Governor in bridge.js decides whether and how fast.
 //
-// Infinite Campus API paths differ between districts and IC releases, so this
-// does not assume it knows yours. It works in three passes:
+// These are not guesses. The paths below are the Campus Student / Campus Parent
+// portal endpoints that community reference implementations have confirmed
+// against live districts:
 //
-//   1. Learn the shape. Every URL the portal fetched on its own is recorded, so
-//      the base path ("/campus/api/portal/" vs "/campus/resources/portal/" vs a
-//      district-specific prefix) is usually known before we ask for anything.
-//   2. Ask for what is missing, one candidate at a time, ordered by how likely
-//      it is to be right for the base we just learned.
-//   3. Remember dead ends. A 404 is written down permanently, so a path that
-//      does not exist on your install is requested exactly once, ever.
+//   https://github.com/chrischall/infinitecampus-mcp  (docs/endpoints.md)
+//   https://github.com/schwartzpub/ic_parent_api
+//   https://github.com/gilesgc/Infinite-Campus-API
+//   https://github.com/tonyzimbinski/infinite-campus
 //
-// That last rule is what separates this from probing: the request count for
-// discovery is bounded and shrinks to zero as the extension learns your district.
+// None of them are publicly supported interfaces, so a district on an older or
+// customised Campus release can still differ. Three things keep that cheap:
+//
+//   1. Only the district prefix is inferred, from URLs the portal itself used.
+//      Everything after /campus/ is a known-good path, so the candidate set is
+//      one or two URLs per kind rather than a combinatorial sweep.
+//   2. displayOptions tells us which modules the district has switched off, so
+//      disabled features are never requested at all.
+//   3. A 404 is recorded permanently, so any path that is wrong here costs
+//      exactly one request, once, forever.
 
-const CANDIDATES = {
+/**
+ * Confirmed portal endpoints. `flag` names the displayOptions key that gates
+ * the feature; when the district reports it false we skip the request entirely.
+ */
+const ENDPOINTS = {
   identity: [
-    'students',
-    'portal/students',
-    'my/demographics',
-    'preferences/portal',
+    { path: '/campus/api/portal/students' },
+  ],
+  features: [
+    { path: '/campus/api/portal/displayOptions/{structureID}?personID={personID}' },
   ],
   roster: [
-    'roster',
-    'portal/roster',
-    'grades',
-    'students/{personID}/roster',
+    { path: '/campus/resources/portal/roster?personID={personID}', flag: 'schedule' },
   ],
   grades: [
-    'grades/detail/{personID}',
-    'grades/{personID}',
-    'portal/grades/detail/{personID}',
-    'students/{personID}/grades',
-  ],
-  schedule: [
-    'schedule',
-    'schedule/{personID}',
-    'portal/schedule',
-    'roster/schedule',
-  ],
-  transcript: [
-    'transcript?personID={personID}',
-    'transcript/{personID}',
-    'portal/transcript?personID={personID}',
-    'students/{personID}/transcript',
-  ],
-  gpa: [
-    'gpa/{personID}',
-    'gpa',
-    'portal/gpa/{personID}',
+    { path: '/campus/resources/portal/grades?personID={personID}', flag: 'grades' },
   ],
   assignments: [
-    'grades/detail/{personID}?sectionID={sectionID}',
-    'assignment/section/{sectionID}',
-    'portal/assignment/section/{sectionID}',
+    { path: '/campus/api/portal/assignment/listView?personID={personID}', flag: 'grades' },
+  ],
+  sectionAssignments: [
+    {
+      path: '/campus/api/portal/assignment/listView?personID={personID}&sectionID={sectionID}',
+      flag: 'grades',
+    },
+  ],
+  terms: [
+    { path: '/campus/resources/term?structureID={structureID}' },
+  ],
+  documents: [
+    // Transcripts and report cards live here, as downloadable files rather than
+    // as structured JSON. There is no portal endpoint that returns a parsed
+    // transcript - see README, "Limitations worth knowing".
+    { path: '/campus/resources/portal/report/all?personID={personID}', flag: 'documents' },
   ],
 };
 
-// Used only when the portal has not shown us any API traffic yet.
-const SEED_BASES = [
-  '/campus/api/portal/',
-  '/campus/resources/portal/',
-  '/campus/api/',
-  '/campus/resources/',
+/** Order matters: each kind can depend on ids the previous one returned. */
+const ROUNDS = [
+  ['identity'],
+  ['features', 'roster', 'grades'],
+  ['assignments', 'terms', 'documents'],
+  ['sectionAssignments'],
 ];
 
 /**
- * Infer base paths from URLs the portal fetched itself.
- * A base learned this way is far more likely to be right than a seed guess.
+ * Infer the district's path prefix from URLs the portal fetched itself.
+ * Almost always "", but some deployments mount Campus under an extra segment.
  */
-export function deriveBases(seenUrls, origin) {
+export function derivePrefixes(seenUrls, origin) {
   const counts = new Map();
 
   for (const raw of seenUrls || []) {
@@ -77,42 +77,34 @@ export function deriveBases(seenUrls, origin) {
     try { u = new URL(raw); } catch { continue; }
     if (u.origin !== origin) continue;
 
-    const parts = u.pathname.split('/').filter(Boolean);
-    const campusAt = parts.indexOf('campus');
-    if (campusAt === -1) continue;
-
-    // Keep the prefix up to and including the API segment, and at most one
-    // grouping segment past it: /campus/api/ and /campus/api/portal/, but not
-    // /campus/api/portal/students/ — that last one is a resource, not a base,
-    // and treating it as one would cost a wasted 404 on every run.
-    for (let end = campusAt + 2; end <= Math.min(parts.length - 1, campusAt + 3); end++) {
-      const base = `/${parts.slice(0, end).join('/')}/`;
-      if (!/\/(api|resources|prism)\//.test(base)) continue;
-      counts.set(base, (counts.get(base) || 0) + 1);
-    }
+    const at = u.pathname.indexOf('/campus/');
+    if (at === -1) continue;
+    counts.set(u.pathname.slice(0, at), (counts.get(u.pathname.slice(0, at)) || 0) + 1);
   }
 
-  const learned = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([base]) => base);
-
-  return [...new Set([...learned, ...SEED_BASES])].slice(0, 6);
+  const learned = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  return [...new Set([...learned, ''])].slice(0, 3);
 }
-
-const fill = (template, vars) =>
-  template.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? encodeURIComponent(vars[k]) : m));
 
 const hasUnfilled = (s) => /\{\w+\}/.test(s);
 
-function buildUrls(origin, bases, kind, vars, limit) {
+function fill(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (m, key) =>
+    (vars[key] !== null && vars[key] !== undefined ? encodeURIComponent(vars[key]) : m));
+}
+
+/**
+ * Build candidate URLs for one kind.
+ * Iterates prefix-major so a single unlucky prefix can never starve the rest of
+ * the list - the bug that made an earlier version miss the correct endpoint.
+ */
+function buildUrls(origin, prefixes, kind, vars, flags) {
   const out = [];
-  for (const template of CANDIDATES[kind] || []) {
-    const path = fill(template, vars);
-    if (hasUnfilled(path)) continue; // missing a variable we do not know yet
-    for (const base of bases) {
-      out.push(origin + base.replace(/\/$/, '') + '/' + path.replace(/^\//, ''));
-      if (out.length >= limit) return out;
-    }
+  for (const endpoint of ENDPOINTS[kind] || []) {
+    if (endpoint.flag && flags && flags[endpoint.flag] === false) continue;
+    const path = fill(endpoint.path, vars);
+    if (hasUnfilled(path)) continue; // depends on an id we do not have yet
+    for (const prefix of prefixes) out.push(origin + prefix + path);
   }
   return out;
 }
@@ -123,10 +115,10 @@ export function gapsIn(data) {
   const courses = data?.courses || [];
   if (!data?.student?.personID) gaps.push('identity');
   if (!courses.length) gaps.push('roster');
-  if (!courses.some((c) => assignmentsIn(c) > 0)) gaps.push('grades');
+  if (!courses.some((c) => assignmentsIn(c) > 0)) gaps.push('assignments');
   if (!(data?.schedule || []).length) gaps.push('schedule');
-  if (!(data?.transcript || []).length) gaps.push('transcript');
-  if (!data?.gpaSummary) gaps.push('gpa');
+  if (!(data?.documents || []).length) gaps.push('documents');
+  if (!data?.gpaSummary && !(data?.transcript || []).length) gaps.push('transcript');
   return gaps;
 }
 
@@ -136,13 +128,20 @@ const assignmentsIn = (course) =>
 
 /**
  * Plan one round of requests.
- * @returns {{urls: string[], focus: string[]}}
+ * @returns {{urls: string[], focus: string[], prefixes: string[]}}
  */
 export function planRound({ round, origin, data, seenUrls, deadUrls, perRound = 14 }) {
-  const bases = deriveBases(seenUrls, origin);
+  const prefixes = derivePrefixes(seenUrls, origin);
   const dead = new Set(deadUrls || []);
-  const personID = data?.student?.personID ?? null;
-  const vars = { personID };
+  const flags = data?.displayOptions || null;
+
+  const enrollment = (data?.enrollments || [])[0] || {};
+  const vars = {
+    personID: data?.student?.personID ?? null,
+    structureID: enrollment.structureID ?? null,
+    calendarID: enrollment.calendarID ?? null,
+    enrollmentID: enrollment.enrollmentID ?? null,
+  };
 
   const urls = [];
   const focus = [];
@@ -152,39 +151,28 @@ export function planRound({ round, origin, data, seenUrls, deadUrls, perRound = 
     }
   };
 
-  if (round === 0) {
-    // Bootstrap: we need a personID before most other paths mean anything.
-    if (!personID) {
-      focus.push('identity');
-      push(buildUrls(origin, bases, 'identity', vars, 6));
+  const kinds = ROUNDS[Math.min(round, ROUNDS.length - 1)] || [];
+
+  for (const kind of kinds) {
+    if (kind === 'sectionAssignments') {
+      // Only for courses that arrived without any assignment detail.
+      const thin = (data?.courses || []).filter((c) => assignmentsIn(c) === 0).slice(0, 12);
+      for (const course of thin) {
+        const built = buildUrls(origin, prefixes, kind, { ...vars, sectionID: course.id }, flags);
+        if (built.length) focus.push(`assignments: ${course.name}`);
+        push(built);
+        if (urls.length >= perRound) break;
+      }
+      continue;
     }
-    focus.push('roster');
-    push(buildUrls(origin, bases, 'roster', vars, 6));
-    return { urls, focus, bases };
-  }
 
-  if (round === 1) {
-    for (const kind of gapsIn(data)) {
-      if (kind === 'identity' || kind === 'roster') continue;
-      focus.push(kind);
-      push(buildUrls(origin, bases, kind, vars, 4));
-      if (urls.length >= perRound) break;
-    }
-    return { urls, focus, bases };
-  }
-
-  // Round 2+: per-section assignment detail for courses that arrived empty.
-  const thin = (data?.courses || [])
-    .filter((c) => assignmentsIn(c) === 0)
-    .slice(0, 12);
-
-  for (const course of thin) {
-    focus.push(`assignments:${course.name}`);
-    push(buildUrls(origin, bases, 'assignments', { ...vars, sectionID: course.id }, 2));
+    const built = buildUrls(origin, prefixes, kind, vars, flags);
+    if (built.length) focus.push(kind);
+    push(built);
     if (urls.length >= perRound) break;
   }
 
-  return { urls, focus, bases };
+  return { urls, focus, prefixes };
 }
 
 /** Human-readable note about what a run could not find. */
@@ -192,10 +180,12 @@ export function describeGaps(gaps) {
   const labels = {
     identity: 'student identity',
     roster: 'course list',
-    grades: 'assignment-level grades',
+    assignments: 'assignment-level grades',
     schedule: 'class schedule',
-    transcript: 'transcript',
-    gpa: 'GPA summary',
+    documents: 'report cards and transcript files',
+    transcript: 'transcript history',
   };
   return gaps.map((g) => labels[g] || g);
 }
+
+export const CONFIRMED_ENDPOINTS = ENDPOINTS;

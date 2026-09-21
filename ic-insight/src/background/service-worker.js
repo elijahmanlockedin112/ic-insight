@@ -119,9 +119,7 @@ async function runCrawl(onProgress) {
   const origin = info.origin;
   const summary = { rounds: [], requests: 0, captured: 0, stopped: false, reason: null, origin };
 
-  // Four ordered rounds: identity -> features+roster+grades -> assignments+
-  // documents -> per-section detail. Each depends on ids the last one returned.
-  for (let round = 0; round < 4; round++) {
+  for (let round = 0; round < 3; round++) {
     const data = await getData();
     const store = await chrome.storage.local.get([SEEN_KEY, DEAD_KEY]);
     const seenUrls = (store[SEEN_KEY] || {})[origin] || [];
@@ -142,7 +140,7 @@ async function runCrawl(onProgress) {
       round,
       focus: plan.focus,
       planned: plan.urls.length,
-      prefixes: plan.prefixes,
+      bases: plan.bases,
     });
 
     const res = await askTab(tab.id, {

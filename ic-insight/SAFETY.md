@@ -60,14 +60,11 @@ the first run and stays there.
 
 ## 4. It learns your district instead of guessing at it
 
-The endpoint paths are the ones community reference implementations have confirmed against
-live districts, not guesses. The only thing inferred is your district's path prefix, read
-from URLs your portal already used. That makes the candidate set one or two URLs per kind
-rather than a combinatorial sweep.
-
-On top of that, `displayOptions` returns your district's ~90-flag feature allow-list. Modules
-your district has switched off are never requested at all, so a disabled feature costs zero
-requests instead of a 404. Bootstrapping now takes **one** request, not nine.
+Infinite Campus API paths differ between districts and IC releases. Rather than probing a
+long list of guesses, the crawler reads the URLs your portal already used and derives the
+real base path from them (`/campus/api/portal/`, `/campus/resources/portal/`, or whatever
+your district uses). Candidate paths are built on the base that actually works, so the hit
+rate is high and the miss count is small.
 
 Every URL requested appears in the dashboard's **Requests** tab with its status and timing.
 Nothing is hidden from you.

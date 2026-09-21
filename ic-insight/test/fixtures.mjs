@@ -12,64 +12,6 @@ export const identityPayload = {
       lastName: 'Okafor',
       grade: '11',
       schoolName: 'Riverbend High School',
-      enrollments: [
-        {
-          enrollmentID: 55501,
-          calendarID: 3301,
-          structureID: 7701,
-          schoolName: 'Riverbend High School',
-          grade: '11',
-          endYear: 2026,
-        },
-      ],
-    },
-  ],
-};
-
-// The district feature allow-list. Anything false here is never requested.
-export const displayOptionsPayload = {
-  url: 'https://demo.infinitecampus.org/campus/api/portal/displayOptions/7701?personID=987654',
-  ts: Date.now(),
-  json: {
-    grades: true,
-    schedule: true,
-    attendance: true,
-    documents: true,
-    assessment: true,
-    behavior: false,
-    foodService: false,
-    academicPlanner: true,
-    progressReport: true,
-    customForms: false,
-    plan: false,
-    documentsIEP: false,
-    fees: true,
-    portalHomeOnly: false,
-    newMessage: false,
-    lockers: true,
-    transportation: false,
-    healthOffice: false,
-  },
-};
-
-// Transcripts arrive as downloadable files, not as structured JSON.
-export const documentsPayload = {
-  url: 'https://demo.infinitecampus.org/campus/resources/portal/report/all?personID=987654',
-  ts: Date.now(),
-  json: [
-    {
-      name: 'Official Transcript',
-      type: 'transcript',
-      moduleLabel: 'Grades',
-      url: '/campus/resources/portal/report/transcript?personID=987654',
-      endYear: 2026,
-    },
-    {
-      name: 'Report Card Q1',
-      type: 'reportCard',
-      moduleLabel: 'Grades',
-      url: '/campus/resources/portal/report/reportCard?personID=987654&termID=1',
-      endYear: 2026,
     },
   ],
 };
@@ -217,13 +159,13 @@ function a(id, name, due, totalPoints, scorePoints) {
 }
 
 export const rosterPayload = {
-  url: 'https://demo.infinitecampus.org/campus/resources/portal/roster?personID=987654',
+  url: 'https://demo.infinitecampus.org/campus/resources/portal/roster',
   ts: Date.now(),
   json: [apCalc, english, chem],
 };
 
 export const schedulePayload = {
-  url: 'https://demo.infinitecampus.org/campus/resources/portal/roster?personID=987654&view=schedule',
+  url: 'https://demo.infinitecampus.org/campus/resources/portal/schedule',
   ts: Date.now(),
   json: [
     { sectionID: 1002, courseName: 'English 11', periodName: '1', periodSequence: 1, teacherDisplay: 'Byrne, P', roomName: '104', termName: 'Q1', startTime: '08:05', endTime: '08:55' },
@@ -233,7 +175,7 @@ export const schedulePayload = {
 };
 
 export const transcriptPayload = {
-  url: 'https://demo.infinitecampus.org/campus/resources/portal/grades?personID=987654',
+  url: 'https://demo.infinitecampus.org/campus/resources/portal/transcript?personID=987654',
   ts: Date.now(),
   json: {
     summary: { unweightedGPA: 3.62, weightedGPA: 3.94, classRank: 41, classSize: 388, totalCredits: 11 },
@@ -276,9 +218,7 @@ function t(courseName, score, credits, endYear, grade) {
 
 export const allPayloads = [
   identityPayload,
-  displayOptionsPayload,
   rosterPayload,
   schedulePayload,
   transcriptPayload,
-  documentsPayload,
 ];

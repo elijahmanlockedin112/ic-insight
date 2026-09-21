@@ -57,29 +57,6 @@ const looksLikeScheduleRow = (o) =>
   (o.periodName !== undefined || o.periodSequence !== undefined || o.startTime !== undefined) &&
   (o.courseName !== undefined || o.name !== undefined);
 
-const looksLikeEnrollment = (o) =>
-  isObj(o) &&
-  o.enrollmentID !== undefined &&
-  (o.calendarID !== undefined || o.structureID !== undefined);
-
-const looksLikeDocument = (o) =>
-  isObj(o) &&
-  typeof o.url === 'string' &&
-  (o.name !== undefined || o.fileName !== undefined) &&
-  (o.moduleLabel !== undefined || o.type !== undefined || o.endYear !== undefined);
-
-/**
- * The displayOptions payload is a flat bag of ~90 feature booleans. Detect it
- * structurally rather than by key name, since the exact flags vary by release.
- */
-const looksLikeDisplayOptions = (o) => {
-  if (!isObj(o)) return false;
-  const values = Object.values(o);
-  if (values.length < 15) return false;
-  const bools = values.filter((v) => typeof v === 'boolean').length;
-  return bools >= values.length * 0.6;
-};
-
 const looksLikeStudent = (o) =>
   isObj(o) &&
   (o.personID !== undefined || o.studentNumber !== undefined) &&
@@ -272,11 +249,8 @@ export function extract(payloads) {
   const courses = [];
   const transcript = [];
   const schedule = [];
-  const enrollments = [];
-  const documents = [];
   let student = null;
   let gpaSummary = null;
-  let displayOptions = null;
   const sources = [];
 
   for (const p of payloads) {
@@ -287,33 +261,6 @@ export function extract(payloads) {
       if (looksLikeCourse(o)) { courses.push(toCourse(o)); touched = true; return; }
       if (looksLikeTranscriptRow(o)) { transcript.push(toTranscriptRow(o)); touched = true; return; }
       if (looksLikeScheduleRow(o)) { schedule.push(toScheduleRow(o)); touched = true; return; }
-
-      if (looksLikeEnrollment(o)) {
-        enrollments.push({
-          enrollmentID: String(o.enrollmentID),
-          calendarID: o.calendarID != null ? String(o.calendarID) : null,
-          structureID: o.structureID != null ? String(o.structureID) : null,
-          schoolName: first(o, 'schoolName', 'school'),
-          grade: first(o, 'grade', 'gradeLevel'),
-          endYear: num(first(o, 'endYear', 'schoolYear')),
-        });
-        touched = true;
-      }
-
-      if (looksLikeDocument(o)) {
-        documents.push({
-          name: String(first(o, 'name', 'fileName')),
-          type: first(o, 'type', 'moduleLabel'),
-          url: o.url,
-          endYear: num(o.endYear),
-        });
-        touched = true;
-      }
-
-      if (!displayOptions && looksLikeDisplayOptions(o)) {
-        displayOptions = { ...o };
-        touched = true;
-      }
 
       if (!student && looksLikeStudent(o)) {
         student = {
@@ -353,9 +300,6 @@ export function extract(payloads) {
   return {
     student,
     gpaSummary,
-    displayOptions,
-    enrollments: uniqueBy(enrollments, (e) => e.enrollmentID),
-    documents: uniqueBy(documents, (d) => d.url),
     courses: [...byCourse.values()],
     transcript: uniqueBy(transcript, (t) => t.id),
     schedule: uniqueBy(schedule, (s) => s.id),
@@ -375,11 +319,6 @@ export function mergeDataset(oldData, fresh) {
   return {
     student: fresh.student ?? oldData.student,
     gpaSummary: fresh.gpaSummary ?? oldData.gpaSummary,
-    displayOptions: fresh.displayOptions ?? oldData.displayOptions,
-    enrollments: uniqueBy(
-      [...(fresh.enrollments || []), ...(oldData.enrollments || [])], (e) => e.enrollmentID),
-    documents: uniqueBy(
-      [...(fresh.documents || []), ...(oldData.documents || [])], (d) => d.url),
     courses: [...byId.values()],
     transcript: uniqueBy([...(fresh.transcript || []), ...(oldData.transcript || [])], (t) => t.id),
     schedule: fresh.schedule && fresh.schedule.length ? fresh.schedule : oldData.schedule,

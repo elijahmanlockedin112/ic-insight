@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>IC Insight Dashboard</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    body { max-width: 1020px; margin: 0 auto; padding: 24px 20px 80px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; gap: 12px; }
+    nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+    nav button {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      border-radius: 0; padding: 9px 14px; color: var(--muted); font-weight: 560;
+    }
+    nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+    .statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; }
+    .course-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+    .course-head .pct { font-size: 20px; font-weight: 640; font-variant-numeric: tabular-nums; }
+    .catbar { display: grid; grid-template-columns: 1fr 52px 64px; gap: 8px; align-items: center; font-size: 12px; }
+    .spark { display: flex; align-items: flex-end; gap: 2px; height: 30px; }
+    .spark i { width: 6px; background: var(--accent); border-radius: 1px; display: block; min-height: 2px; }
+    .spark i.bad { background: var(--danger); }
+    #answer { min-height: 120px; }
+    .chatbox { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 14px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>IC Insight</h1>
+      <div id="subtitle" class="small muted"></div>
+    </div>
+    <div class="row">
+      <button id="fetch">Fetch my data</button>
+      <button id="settings" class="ghost">Settings</button>
+    </div>
+  </header>
+
+  <div id="banner"></div>
+
+  <nav role="tablist">
+    <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-tab="courses" aria-selected="false">Courses</button>
+    <button role="tab" data-tab="coach" aria-selected="false">Coach</button>
+    <button role="tab" data-tab="requests" aria-selected="false">Requests</button>
+  </nav>
+
+  <!-- ---------------------------------------------------------- overview -->
+  <section id="tab-overview">
+    <div class="card">
+      <div class="statrow" id="stats"></div>
+    </div>
+    <div class="card" id="goalCard"></div>
+    <div class="card" id="risksCard"></div>
+    <div class="card" id="actionsCard"></div>
+    <div class="card" id="historyCard"></div>
+  </section>
+
+  <!-- ----------------------------------------------------------- courses -->
+  <section id="tab-courses" class="hidden">
+    <div id="courseList" class="stack"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------- coach -->
+  <section id="tab-coach" class="hidden">
+    <div class="card">
+      <div class="row spread" style="margin-bottom:10px">
+        <h2 style="margin:0">Ask for an analysis</h2>
+        <span id="coachMeta" class="small muted"></span>
+      </div>
+      <div class="chatbox">
+        <input id="question" type="text"
+               placeholder="Optional: ask something specific, e.g. &quot;what should I do this weekend?&quot;">
+        <button id="analyze" class="primary">Analyze my grades</button>
+      </div>
+      <p class="small muted" style="margin-top:8px" id="privacyNote"></p>
+    </div>
+
+    <div class="card">
+      <div id="answerStatus" class="small muted"></div>
+      <div id="answer" class="prose"></div>
+    </div>
+
+    <div class="card">
+      <h2>Earlier analyses</h2>
+      <div id="historyList" class="small"></div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------- requests -->
+  <section id="tab-requests" class="hidden">
+    <div class="card">
+      <h2>What this extension asked your school's servers for</h2>
+      <p class="small muted">
+        Most of your data arrives without a single extra request: the extension reads what the portal
+        already loaded while you clicked around. The rows below are the only requests it originated
+        itself, each one a plain GET to a page your own account can already open.
+      </p>
+      <div class="statrow" id="netStats" style="margin:14px 0"></div>
+      <div id="netNotice"></div>
+    </div>
+    <div class="card">
+      <h2>Recent requests</h2>
+      <div class="scroll"><table id="netTable"></table></div>
+    </div>
+  </section>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

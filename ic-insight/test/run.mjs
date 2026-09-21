@@ -6,7 +6,7 @@ import { extract } from '../src/common/normalize.js';
 import { analyze } from '../src/common/analysis.js';
 import { DEFAULT_SETTINGS } from '../src/common/storage.js';
 import { buildBrief, redactReport, systemPrompt } from '../src/background/prompt.js';
-import { derivePrefixes, planRound } from '../src/background/crawler.js';
+import { deriveBases, planRound, gapsIn } from '../src/background/crawler.js';
 import { allPayloads } from './fixtures.mjs';
 
 let passed = 0;
@@ -147,60 +147,24 @@ truthy('system prompt forbids recomputation', sys.includes('Do not recompute'));
 console.log('\n== crawler ==');
 const origin = 'https://demo.infinitecampus.org';
 const seen = allPayloads.map((p) => p.url);
+const bases = deriveBases(seen, origin);
+truthy('learned the resources base from observed traffic',
+  bases.includes('/campus/resources/portal/'));
+truthy('learned the api base from observed traffic',
+  bases.includes('/campus/api/portal/'));
 
-check('district prefix inferred as root', derivePrefixes(seen, origin)[0], '');
-check('a sub-mounted district prefix is learned',
-  derivePrefixes([origin + '/dist7/campus/api/portal/students'], origin)[0], '/dist7');
+check('no gaps once everything is captured', gapsIn(data), []);
 
-// Regression: an earlier version iterated template-major and burned its whole
-// per-round budget on the first candidate, so the correct endpoint was never
-// reached. Round 0 must always produce the confirmed identity path.
-const bootstrap = planRound({ round: 0, origin, data: null, seenUrls: seen, deadUrls: [] });
-truthy('round 0 requests the confirmed identity endpoint',
-  bootstrap.urls.includes(origin + '/campus/api/portal/students'));
-check('round 0 is a single request, not a sweep', bootstrap.urls.length, 1);
+const emptyPlan = planRound({ round: 0, origin, data: null, seenUrls: seen, deadUrls: [] });
+truthy('bootstrap round plans identity + roster requests', emptyPlan.urls.length > 0);
+truthy('bootstrap respects the per-round cap', emptyPlan.urls.length <= 14);
 truthy('planned URLs stay on the portal origin',
-  bootstrap.urls.every((u) => u.startsWith(origin)));
-
-// Round 1 needs the personID that round 0 supplies.
-const noId = planRound({ round: 1, origin, data: null, seenUrls: seen, deadUrls: [] });
-check('round 1 plans nothing without a personID', noId.urls.length, 0);
-
-const withId = planRound({ round: 1, origin, data, seenUrls: seen, deadUrls: [] });
-truthy('round 1 requests the confirmed roster endpoint',
-  withId.urls.some((u) => u.includes('/campus/resources/portal/roster?personID=987654')));
-truthy('round 1 requests the confirmed grades endpoint',
-  withId.urls.some((u) => u.includes('/campus/resources/portal/grades?personID=987654')));
-truthy('round 1 fills structureID from the enrollment record',
-  withId.urls.some((u) => u.includes('/displayOptions/7701')));
-
-// Feature flags: disabled modules must never be requested at all.
-truthy('district feature flags captured', data.displayOptions?.grades === true);
-const gated = planRound({
-  round: 2,
-  origin,
-  data: { ...data, displayOptions: { ...data.displayOptions, documents: false } },
-  seenUrls: seen,
-  deadUrls: [],
-});
-truthy('a disabled module is never requested',
-  !gated.urls.some((u) => u.includes('report/all')));
-
-const enabled = planRound({ round: 2, origin, data, seenUrls: seen, deadUrls: [] });
-truthy('an enabled module is requested',
-  enabled.urls.some((u) => u.includes('/campus/resources/portal/report/all')));
+  emptyPlan.urls.every((u) => u.startsWith(origin)));
 
 const deadAll = planRound({
-  round: 0, origin, data: null, seenUrls: seen, deadUrls: bootstrap.urls,
+  round: 0, origin, data: null, seenUrls: seen, deadUrls: emptyPlan.urls,
 });
 check('known-dead URLs are never requested again', deadAll.urls.length, 0);
-
-check('enrollment metadata extracted', data.enrollments.length, 1);
-check('structureID extracted', data.enrollments[0].structureID, '7701');
-check('documents extracted', data.documents.length, 2);
-truthy('the transcript is found as a downloadable document',
-  data.documents.some((d) => /transcript/i.test(d.name)));
-
 
 // -------------------------------------------------------------------- done
 
