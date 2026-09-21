@@ -2,7 +2,7 @@
 // IC payload -> canonical dataset -> deterministic report.
 // Run: node test/run.mjs
 
-import { extract } from '../src/common/normalize.js';
+import { extract, assignmentCount } from '../src/common/normalize.js';
 import { analyze } from '../src/common/analysis.js';
 import { DEFAULT_SETTINGS } from '../src/common/storage.js';
 import { buildBrief, redactReport, systemPrompt } from '../src/background/prompt.js';
@@ -37,7 +37,28 @@ const fmt = (v) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 console.log('\n== normalize ==');
 const data = extract(allPayloads);
 
-check('courses found', data.courses.length, 3);
+check('courses found', data.courses.length, 4);
+
+// Regression: /campus/api/portal/assignment/listView returns a flat array of
+// assignments, not assignments nested under courses. An earlier version matched
+// them with looksLikeAssignment but had no branch to claim them, so every one
+// was parsed and silently discarded - courses stayed empty and the crawler
+// re-requested the same sections on every run.
+const usHistory = data.courses.find((c) => c.name === 'US History');
+truthy('a course known only from listView is created',
+  usHistory !== undefined);
+check('listView assignments are attached', assignmentCount(usHistory), 3);
+truthy('a listView-only task is marked approximate',
+  usHistory.gradingTasks[0].approximate === true);
+truthy('a missing listView assignment keeps its flag',
+  usHistory.gradingTasks[0].categories
+    .flatMap((c) => c.assignments).some((a) => a.missing === true));
+check('listView assignments group by their own category',
+  usHistory.gradingTasks[0].categories.length, 3);
+
+// The same assignment appearing in both the roster and listView must count once.
+check('an assignment present in both payloads is not double-counted',
+  assignmentCount(data.courses.find((c) => c.name === 'AP Calculus AB')), 7);
 check('transcript rows', data.transcript.length, 12);
 check('schedule rows', data.schedule.length, 3);
 truthy('student identified', data.student?.personID === '987654');

@@ -111,6 +111,14 @@ function renderOverview() {
   stats.appendChild(stat(String(missing), 'Missing', missing ? 'danger' : null));
   stats.appendChild(stat(String(declining), 'Sliding', declining ? 'warn' : null));
 
+  // Makes it obvious when a course arrived without assignment-level detail.
+  const withDetail = report.coverage?.coursesWithAssignments ?? 0;
+  const total = report.courses.length;
+  stats.appendChild(stat(
+    `${withDetail}/${total}`, 'With detail',
+    withDetail < total ? 'warn' : null,
+  ));
+
   // --- goal ---
   const goalCard = $('goalCard');
   goalCard.textContent = '';
@@ -231,6 +239,12 @@ function renderCourses() {
     if (c.rigor !== 'regular') badges.appendChild(el('span', 'pill', c.rigor.toUpperCase()));
     if (c.trend.direction === 'declining') badges.appendChild(el('span', 'pill bad', 'sliding'));
     if (c.trend.direction === 'improving') badges.appendChild(el('span', 'pill good', 'improving'));
+    if (c.approximate) {
+      const pill = el('span', 'pill warn', 'approx');
+      pill.title = 'Assignment detail came from listView, which carries no category ' +
+                   'weights. The headline grade is the one Infinite Campus reported.';
+      badges.appendChild(pill);
+    }
     right.appendChild(badges);
     head.appendChild(right);
     card.appendChild(head);
@@ -240,6 +254,12 @@ function renderCourses() {
     if (c.cushionToDrop !== null) line.push(`${c.cushionToDrop} pts above dropping to the next letter down`);
     if (c.nextLetter) line.push(`${c.nextLetter.gap} pts from a ${c.nextLetter.letter}`);
     if (line.length) card.appendChild(el('p', 'small muted', line.join(' · ')));
+
+    if (!c.trend.n) {
+      card.appendChild(el('div', 'notice warn small',
+        'No assignment-level detail for this course yet. Open it once in the portal, ' +
+        'or press Fetch my data.'));
+    }
 
     // categories
     if (c.categories.length) {

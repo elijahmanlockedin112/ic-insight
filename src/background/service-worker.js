@@ -9,7 +9,7 @@ import {
 } from '../common/storage.js';
 import { extract, mergeDataset } from '../common/normalize.js';
 import { analyze, snapshotOf } from '../common/analysis.js';
-import { planRound, gapsIn, describeGaps } from './crawler.js';
+import { planRound, gapsIn, describeGaps, kindOfUrl } from './crawler.js';
 import { streamCompletion, listModels, PROVIDERS } from './providers.js';
 import { redactReport, buildBrief, systemPrompt, userPrompt, followUpPrompt } from './prompt.js';
 
@@ -32,6 +32,14 @@ async function ingest(origin, batch) {
   const fresh = extract(payloads);
   const merged = mergeDataset(await getData(), fresh);
   merged.origin = origin;
+
+  // Record when each kind of data last arrived, so a repeat Fetch can skip
+  // anything still fresh instead of re-requesting the whole sequence.
+  merged.fetchedAt = { ...(merged.fetchedAt || {}) };
+  for (const p of payloads) {
+    const kind = kindOfUrl(p.url);
+    if (kind) merged.fetchedAt[kind] = p.ts || Date.now();
+  }
   await saveData(merged);
 
   // Keep a daily snapshot so trends survive even if IC drops old terms.
@@ -105,7 +113,7 @@ async function findPortalTab() {
 
 // ------------------------------------------------------------------- crawl
 
-async function runCrawl(onProgress) {
+async function runCrawl(onProgress, { force = false } = {}) {
   const settings = await getSettings();
   const found = await findPortalTab();
   if (!found) {
@@ -130,6 +138,9 @@ async function runCrawl(onProgress) {
     const plan = planRound({
       round, origin, data, seenUrls, deadUrls,
       perRound: settings.collection.maxPerRound ?? 14,
+      fetchedAt: data?.fetchedAt || null,
+      ttlMinutes: settings.collection.cacheTtlMinutes ?? 360,
+      force,
     });
 
     if (!plan.urls.length) {
@@ -185,6 +196,7 @@ async function runCrawl(onProgress) {
   const data = await getData();
   summary.gaps = describeGaps(gapsIn(data));
   summary.courses = (data?.courses || []).length;
+  summary.upToDate = summary.requests === 0 && !summary.stopped;
   return { ok: true, ...summary };
 }
 
@@ -342,7 +354,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       }
 
       case 'ui:crawl':
-        return runCrawl();
+        return runCrawl(undefined, { force: Boolean(msg.force) });
 
       case 'ui:scrapeDom': {
         const found = await findPortalTab();
@@ -401,7 +413,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (msg.type !== 'run') return;
       const res = await runCrawl((p) => {
         try { port.postMessage({ type: 'progress', ...p }); } catch { /* closed */ }
-      });
+      }, { force: Boolean(msg.force) });
       try { port.postMessage({ type: 'done', ...res }); } catch { /* closed */ }
     });
   }

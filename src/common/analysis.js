@@ -67,6 +67,18 @@ export function computeTaskPercent(task, overrides = {}) {
       : null;
   }
 
+  // A task assembled from listView has no category weights, so recomputing it
+  // would disagree with a weighted gradebook. Where IC gave us its own figure,
+  // that stays the headline grade; the assignments are still used for trends,
+  // missing work and what-ifs.
+  if (task.approximate && task.reportedPercent != null) {
+    for (const c of cats) {
+      c.weightShare = null;
+      c.dragPoints = null;
+    }
+    return { percent: task.reportedPercent, method: 'reported', categories: cats, approximate: true };
+  }
+
   const useWeights = task.weighted && active.every((c) => c.weight !== null && c.weight > 0);
 
   if (useWeights) {
@@ -405,6 +417,7 @@ export function analyze(data, settings, snapshots = []) {
       percent: round(percent, 2),
       letter,
       method: computed?.method ?? 'reported',
+      approximate: Boolean(task.approximate),
       reportedByIC: task.reportedScore ?? null,
       cushionToDrop: cushion(percent, scale),
       nextLetter: up ? { letter: up.letter, atPercent: up.floor, gap: round(up.floor - percent, 2) } : null,

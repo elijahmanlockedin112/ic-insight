@@ -274,6 +274,41 @@ function t(courseName, score, credits, endYear, grade) {
   };
 }
 
+// The real shape of /campus/api/portal/assignment/listView: a FLAT array, each
+// item carrying its own sectionID rather than being nested under a course.
+// Section 1004 has no roster entry at all, so it also exercises stub creation.
+export const listViewPayload = {
+  url: 'https://demo.infinitecampus.org/campus/api/portal/assignment/listView?personID=987654',
+  ts: Date.now(),
+  json: [
+    lv(9001, 'Reading quiz 4', 'US History', 1004, '2025-09-10', 20, '17', 'Quizzes'),
+    lv(9002, 'DBQ essay', 'US History', 1004, '2025-09-20', 50, '41', 'Essays'),
+    { ...lv(9003, 'Map worksheet', 'US History', 1004, '2025-09-27', 10, '0', 'Practice'),
+      missing: true, turnedIn: false },
+    // Already present nested in the roster payload: must not be double-counted.
+    lv(5001, 'Unit 1 Test', 'AP Calculus AB', 1001, '2025-09-05', 100, '88', 'Tests'),
+  ],
+};
+
+function lv(id, name, courseName, sectionID, due, totalPoints, scorePoints, categoryName) {
+  return {
+    objectSectionID: id,
+    assignmentName: name,
+    courseName,
+    sectionID,
+    categoryName,
+    dueDate: `${due}T00:00:00.000-05:00`,
+    totalPoints,
+    scorePoints,
+    scorePercentage: (Number(scorePoints) / totalPoints) * 100,
+    missing: false,
+    late: false,
+    turnedIn: true,
+    dropped: false,
+    comments: null,
+  };
+}
+
 export const allPayloads = [
   identityPayload,
   displayOptionsPayload,
@@ -281,4 +316,5 @@ export const allPayloads = [
   schedulePayload,
   transcriptPayload,
   documentsPayload,
+  listViewPayload,
 ];

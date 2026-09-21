@@ -130,10 +130,22 @@ const assignmentsIn = (course) =>
  * Plan one round of requests.
  * @returns {{urls: string[], focus: string[], prefixes: string[]}}
  */
-export function planRound({ round, origin, data, seenUrls, deadUrls, perRound = 14 }) {
+export function planRound({
+  round, origin, data, seenUrls, deadUrls, perRound = 14,
+  fetchedAt = null, ttlMinutes = 0, force = false,
+}) {
   const prefixes = derivePrefixes(seenUrls, origin);
   const dead = new Set(deadUrls || []);
   const flags = data?.displayOptions || null;
+
+  // Anything fetched inside the TTL is left alone. Without this, pressing
+  // Fetch twice re-ran the entire sequence for no new data.
+  const ttlMs = ttlMinutes * 60 * 1000;
+  const isFresh = (kind) => {
+    if (force || !fetchedAt || !ttlMs) return false;
+    const at = fetchedAt[kind];
+    return typeof at === 'number' && Date.now() - at < ttlMs;
+  };
 
   const enrollment = (data?.enrollments || [])[0] || {};
   const vars = {
@@ -154,7 +166,12 @@ export function planRound({ round, origin, data, seenUrls, deadUrls, perRound = 
   const kinds = ROUNDS[Math.min(round, ROUNDS.length - 1)] || [];
 
   for (const kind of kinds) {
+    if (isFresh(kind)) continue;
+
     if (kind === 'sectionAssignments') {
+      // The un-parameterised listView already returns the full term history for
+      // every course, so per-section calls are pure duplication once it lands.
+      if (isFresh('assignments') || (fetchedAt && fetchedAt.assignments)) continue;
       // Only for courses that arrived without any assignment detail.
       const thin = (data?.courses || []).filter((c) => assignmentsIn(c) === 0).slice(0, 12);
       for (const course of thin) {
@@ -189,3 +206,21 @@ export function describeGaps(gaps) {
 }
 
 export const CONFIRMED_ENDPOINTS = ENDPOINTS;
+
+/** Map a captured URL back to the endpoint kind it came from. */
+export function kindOfUrl(url) {
+  let path;
+  try { path = new URL(url).pathname; } catch { return null; }
+  for (const [kind, list] of Object.entries(ENDPOINTS)) {
+    for (const endpoint of list) {
+      const stem = endpoint.path.split('?')[0].replace(/\{\w+\}/g, '');
+      const clean = stem.replace(/\/+$/, '');
+      if (clean && path.includes(clean)) {
+        // listView serves both the whole-term list and the per-section one.
+        if (kind === 'sectionAssignments') continue;
+        return kind;
+      }
+    }
+  }
+  return null;
+}

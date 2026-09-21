@@ -100,7 +100,7 @@ function toAssignment(a, ctx = {}) {
   const dueDate = parseDate(first(a, 'dueDate', 'endDate', 'assignedDate'));
 
   const percent =
-    num(a.percent) ??
+    num(first(a, 'percent', 'scorePercentage')) ??
     (earned !== null && possible ? pct(earned, possible) : null);
 
   return {
@@ -108,8 +108,11 @@ function toAssignment(a, ctx = {}) {
         hashId(ctx.courseId, a.assignmentName, a.dueDate)),
     name: String(first(a, 'assignmentName', 'name', 'title') ?? 'Untitled'),
     courseId: ctx.courseId ?? String(first(a, 'sectionID', 'courseID') ?? ''),
+    // listView carries the course name on the assignment itself; it is the only
+    // way to name a course that has no roster entry.
+    courseName: first(a, 'courseName') ? String(first(a, 'courseName')) : null,
     categoryId: ctx.categoryId ?? (a.groupActivityID != null ? String(a.groupActivityID) : null),
-    categoryName: ctx.categoryName ?? null,
+    categoryName: ctx.categoryName ?? first(a, 'categoryName', 'groupName') ?? null,
     taskName: ctx.taskName ?? null,
     dueDate: dueDate ? dueDate.toISOString() : null,
     possible,
@@ -124,13 +127,21 @@ function toAssignment(a, ctx = {}) {
   };
 }
 
-function collectAssignments(node, ctx) {
+/**
+ * `consumed` records the raw nodes turned into assignments here, so a later
+ * pass can tell a course-nested assignment from a standalone one.
+ */
+function collectAssignments(node, ctx, consumed) {
   const out = [];
-  walk(node, (o) => { if (looksLikeAssignment(o)) out.push(toAssignment(o, ctx)); });
+  walk(node, (o) => {
+    if (!looksLikeAssignment(o)) return;
+    consumed?.add(o);
+    out.push(toAssignment(o, ctx));
+  });
   return out;
 }
 
-function toCategory(c, ctx) {
+function toCategory(c, ctx, consumed) {
   const categoryId = String(first(c, 'groupActivityID', 'categoryID', 'id') ??
     hashId(ctx.courseId, ctx.taskName, first(c, 'name', 'groupName')));
   const categoryName = String(first(c, 'name', 'groupName', 'categoryName') ?? 'Uncategorized');
@@ -138,6 +149,7 @@ function toCategory(c, ctx) {
   const assignments = collectAssignments(
     c.assignments ?? c.assignmentList ?? c,
     { ...ctx, categoryId, categoryName },
+    consumed,
   );
 
   const graded = assignments.filter((a) => !a.dropped && !a.notGraded && a.possible > 0);
@@ -155,16 +167,16 @@ function toCategory(c, ctx) {
   };
 }
 
-function toGradingTask(t, ctx) {
+function toGradingTask(t, ctx, consumed) {
   const taskName = String(first(t, 'taskName', 'name', 'gradingTaskName') ?? 'Grade');
   const inner = { ...ctx, taskName };
 
   const rawCats = t.categories ?? t.categoryList ?? t.groups ?? null;
-  let categories = Array.isArray(rawCats) ? rawCats.map((c) => toCategory(c, inner)) : [];
+  let categories = Array.isArray(rawCats) ? rawCats.map((c) => toCategory(c, inner, consumed)) : [];
 
   // Total-points courses have no categories, so synthesise one bucket.
   if (!categories.length) {
-    const assignments = collectAssignments(t, inner);
+    const assignments = collectAssignments(t, inner, consumed);
     if (assignments.length) {
       const graded = assignments.filter((a) => !a.dropped && !a.notGraded && a.possible > 0);
       categories = [{
@@ -193,18 +205,19 @@ function toGradingTask(t, ctx) {
   };
 }
 
-function toCourse(c) {
+function toCourse(c, consumed) {
   const courseId = String(first(c, 'sectionID', 'courseID', 'id') ??
     hashId(first(c, 'courseName', 'name'), first(c, 'courseNumber')));
   const name = String(first(c, 'courseName', 'name') ?? 'Unnamed course');
 
   const rawTasks = c.gradingTasks ?? c.gradingTaskList ?? c.grades ?? null;
   let tasks = Array.isArray(rawTasks)
-    ? rawTasks.map((t) => toGradingTask(t, { courseId }))
+    ? rawTasks.map((t) => toGradingTask(t, { courseId }, consumed))
     : [];
 
-  if (!tasks.length && (Array.isArray(c.categories) || collectAssignments(c, { courseId }).length)) {
-    tasks = [toGradingTask(c, { courseId })];
+  if (!tasks.length &&
+      (Array.isArray(c.categories) || collectAssignments(c, { courseId }, null).length)) {
+    tasks = [toGradingTask(c, { courseId }, consumed)];
   }
 
   return {
@@ -260,6 +273,113 @@ function toScheduleRow(s) {
 
 // ------------------------------------------------------------------- public
 
+
+/**
+ * `/campus/api/portal/assignment/listView` returns a FLAT array of assignments,
+ * each carrying its own sectionID rather than being nested under a course. They
+ * are the richest source of per-assignment detail, so they must be folded back
+ * onto the matching course instead of being dropped.
+ *
+ * A task built purely from these is marked `approximate`, because listView does
+ * not carry category weights. Analysis then keeps IC's own reported percentage
+ * as the headline grade and uses the assignments for trends and missing work.
+ */
+function attachOrphans(courses, orphans) {
+  const byCourse = new Map();
+  for (const a of orphans) {
+    if (!a.courseId) continue;
+    if (!byCourse.has(a.courseId)) byCourse.set(a.courseId, []);
+    byCourse.get(a.courseId).push(a);
+  }
+
+  for (const [courseId, items] of byCourse) {
+    let course = courses.find((c) => c.id === courseId);
+
+    if (!course) {
+      course = {
+        id: courseId,
+        name: items[0].courseName || 'Unnamed course',
+        courseNumber: null,
+        teacher: null,
+        period: null,
+        room: null,
+        termName: null,
+        rigor: rigorOf(items[0].courseName || ''),
+        credits: null,
+        gradingTasks: [],
+      };
+      courses.push(course);
+    }
+
+    const existingIds = new Set();
+    for (const t of course.gradingTasks || []) {
+      for (const c of t.categories || []) {
+        for (const a of c.assignments || []) existingIds.add(a.id);
+      }
+    }
+
+    const fresh = items.filter((a) => !existingIds.has(a.id));
+    if (!fresh.length) continue;
+
+    // Group by whatever category label the payload carried, if any.
+    const groups = new Map();
+    for (const a of fresh) {
+      const key = a.categoryName || 'All assignments';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(a);
+    }
+
+    const categories = [...groups.entries()].map(([name, list]) => {
+      const graded = list.filter((a) => !a.dropped && !a.notGraded && a.possible > 0);
+      return {
+        id: hashId(courseId, name),
+        name,
+        weight: null,
+        earned: graded.reduce((sum, a) => sum + (a.earned ?? 0), 0),
+        possible: graded.reduce((sum, a) => sum + a.possible, 0),
+        assignments: list,
+      };
+    });
+
+    const target = (course.gradingTasks || []).find((t) => (t.categories || []).length === 0)
+      ?? (course.gradingTasks || [])[0];
+
+    if (target && (target.categories || []).length === 0) {
+      target.categories = categories;
+      target.approximate = true;
+    } else if (target) {
+      // The course already has a weighted structure; keep it authoritative and
+      // add only assignments it did not already know about.
+      const other = (target.categories || []).find((c) => c.name === 'Other assignments');
+      const extra = categories.flatMap((c) => c.assignments);
+      if (other) other.assignments.push(...extra);
+      else {
+        target.categories.push({
+          id: hashId(courseId, 'other'),
+          name: 'Other assignments',
+          weight: null,
+          earned: 0,
+          possible: 0,
+          assignments: extra,
+        });
+      }
+    } else {
+      course.gradingTasks.push({
+        name: 'Grade',
+        termName: null,
+        isPosted: false,
+        reportedScore: null,
+        reportedPercent: null,
+        weighted: false,
+        approximate: true,
+        categories,
+      });
+    }
+  }
+
+  return courses;
+}
+
 export const assignmentCount = (course) =>
   (course.gradingTasks || []).reduce(
     (s, t) => s + (t.categories || []).reduce((n, c) => n + (c.assignments ? c.assignments.length : 0), 0), 0);
@@ -278,13 +398,14 @@ export function extract(payloads) {
   let gpaSummary = null;
   let displayOptions = null;
   const sources = [];
+  const consumed = new Set();
 
   for (const p of payloads) {
     if (!p || !p.json) continue;
     let touched = false;
 
     walk(p.json, (o) => {
-      if (looksLikeCourse(o)) { courses.push(toCourse(o)); touched = true; return; }
+      if (looksLikeCourse(o)) { courses.push(toCourse(o, consumed)); touched = true; return; }
       if (looksLikeTranscriptRow(o)) { transcript.push(toTranscriptRow(o)); touched = true; return; }
       if (looksLikeScheduleRow(o)) { schedule.push(toScheduleRow(o)); touched = true; return; }
 
@@ -350,13 +471,24 @@ export function extract(payloads) {
     if (!prev || assignmentCount(c) > assignmentCount(prev)) byCourse.set(c.id, c);
   }
 
+  // Second pass: assignments that were never nested inside a course. These come
+  // from listView and are dropped entirely if we do not claim them here.
+  const orphans = [];
+  for (const p of payloads) {
+    if (!p || !p.json) continue;
+    walk(p.json, (o) => {
+      if (looksLikeAssignment(o) && !consumed.has(o)) orphans.push(toAssignment(o, {}));
+    });
+  }
+  const merged = attachOrphans([...byCourse.values()], uniqueBy(orphans, (a) => a.courseId + ':' + a.id));
+
   return {
     student,
     gpaSummary,
     displayOptions,
     enrollments: uniqueBy(enrollments, (e) => e.enrollmentID),
     documents: uniqueBy(documents, (d) => d.url),
-    courses: [...byCourse.values()],
+    courses: merged,
     transcript: uniqueBy(transcript, (t) => t.id),
     schedule: uniqueBy(schedule, (s) => s.id),
     sources,
@@ -376,6 +508,7 @@ export function mergeDataset(oldData, fresh) {
     student: fresh.student ?? oldData.student,
     gpaSummary: fresh.gpaSummary ?? oldData.gpaSummary,
     displayOptions: fresh.displayOptions ?? oldData.displayOptions,
+    fetchedAt: { ...(oldData.fetchedAt || {}), ...(fresh.fetchedAt || {}) },
     enrollments: uniqueBy(
       [...(fresh.enrollments || []), ...(oldData.enrollments || [])], (e) => e.enrollmentID),
     documents: uniqueBy(
