@@ -186,6 +186,42 @@ truthy('ranked actions produced', report.actions.length > 0);
 truthy('top action is the highest-GPA move',
   report.actions[0].gpaDelta >= (report.actions[1]?.gpaDelta ?? 0));
 
+// Regression from a real district's diagnostic: roster returned 200 and yielded
+// 5 schedule rows but 0 courses. Its section objects carry courseName +
+// sectionID + periodName but no gradingTasks array, so looksLikeCourse rejected
+// them, they fell through to the schedule predicate, and every course ended up
+// as a listView-only stub with no official grade.
+console.log('\n== roster shells ==');
+const rosterShellData = extract([
+  {
+    url: 'https://x.infinitecampus.org/campus/resources/portal/roster?personID=1',
+    ts: Date.now(),
+    json: [{
+      sectionID: 296599, courseName: 'Biology', courseNumber: 'SC101',
+      teacherDisplay: 'Alvarez, R', periodName: '4', roomName: '210', termName: 'Q1',
+    }],
+  },
+  {
+    url: 'https://x.infinitecampus.org/campus/api/portal/assignment/listView?personID=1',
+    ts: Date.now(),
+    json: [
+      { objectSectionID: 11, assignmentName: 'Cell quiz', courseName: 'Biology',
+        sectionID: 296599, totalPoints: 20, scorePoints: '18', dueDate: '2025-09-05' },
+      { objectSectionID: 12, assignmentName: 'Lab write-up', courseName: 'Biology',
+        sectionID: 296599, totalPoints: 30, scorePoints: '27', dueDate: '2025-09-12' },
+    ],
+  },
+]);
+check('a roster section with no gradingTasks still becomes a course',
+  rosterShellData.courses.length, 1);
+const bio = rosterShellData.courses[0];
+check('and keeps its real name', bio.name, 'Biology');
+truthy('and its teacher', bio.teacher === 'Alvarez, R');
+truthy('and its period', String(bio.period) === '4');
+check('and merges the listView assignments rather than duplicating the course',
+  assignmentCount(bio), 2);
+check('while still appearing in the schedule', rosterShellData.schedule.length, 1);
+
 // ------------------------------------------------------------------ prompt
 
 console.log('\n== prompt ==');

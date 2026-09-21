@@ -46,6 +46,20 @@ const looksLikeCourse = (o) =>
   (Array.isArray(o.gradingTasks) || Array.isArray(o.gradingTaskList) ||
    Array.isArray(o.grades) || Array.isArray(o.categories) || Array.isArray(o.standards));
 
+/**
+ * A section object with no recognised grading-task array. The roster endpoint
+ * returns these: courseName + sectionID + periodName, with the grades living in
+ * a separate payload. They used to fall through to the schedule predicate and
+ * the course was never built at all, so every course ended up as a listView-only
+ * stub with no official grade. Metadata only - it merges with whatever carries
+ * the real grading tasks.
+ */
+const looksLikeCourseShell = (o) =>
+  isObj(o) &&
+  !looksLikeAssignment(o) &&
+  (o.courseName !== undefined || o.name !== undefined) &&
+  (o.sectionID !== undefined || o.courseID !== undefined);
+
 const looksLikeTranscriptRow = (o) =>
   isObj(o) &&
   (o.creditsEarned !== undefined || o.creditsAttempted !== undefined || o.credits !== undefined) &&
@@ -484,6 +498,26 @@ function mergeCourses(a, b) {
 const countIn = (task) =>
   (task.categories || []).reduce((n, c) => n + (c.assignments?.length ?? 0), 0);
 
+/**
+ * Key names and nesting of a payload, with no values. This is what makes a
+ * district's actual response shape diagnosable instead of guessable.
+ */
+export function describeShape(node, depth = 0) {
+  if (depth > 4) return '...';
+  if (Array.isArray(node)) {
+    return { type: 'array', length: node.length,
+             item: node.length ? describeShape(node[0], depth + 1) : null };
+  }
+  if (node === null || typeof node !== 'object') return typeof node;
+
+  const out = { type: 'object', keys: Object.keys(node).sort(), nested: {} };
+  for (const [k, v] of Object.entries(node)) {
+    if (v && typeof v === 'object') out.nested[k] = describeShape(v, depth + 1);
+  }
+  if (!Object.keys(out.nested).length) delete out.nested;
+  return out;
+}
+
 export const assignmentCount = (course) =>
   (course.gradingTasks || []).reduce(
     (s, t) => s + (t.categories || []).reduce((n, c) => n + (c.assignments ? c.assignments.length : 0), 0), 0);
@@ -517,7 +551,15 @@ export function extract(payloads) {
     let touched = false;
 
     walk(p.json, (o) => {
-      if (looksLikeAssignment(o)) noteKeys('assignment', o);
+      if (looksLikeAssignment(o)) { noteKeys('assignment', o); return; }
+
+      if (!looksLikeCourse(o) && looksLikeCourseShell(o)) {
+        noteKeys('courseShell', o);
+        courses.push(toCourse(o, consumed));
+        touched = true;
+        // Deliberately no return: the same object is usually the schedule row.
+      }
+
       if (looksLikeCourse(o)) {
         noteKeys('course', o);
         const rawTask = (o.gradingTasks || o.gradingTaskList || o.grades || [])[0];

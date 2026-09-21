@@ -583,8 +583,8 @@ $('diagnostic').addEventListener('click', async () => {
   setTimeout(() => { btn.textContent = 'Copy diagnostic'; }, 3000);
 });
 
-$('fetch').addEventListener('click', () => {
-  const btn = $('fetch');
+function startFetch(force) {
+  const btn = force ? $('forceFetch') : $('fetch');
   btn.disabled = true;
   btn.textContent = 'Fetching…';
   const box = $('banner');
@@ -601,7 +601,7 @@ $('fetch').addEventListener('click', () => {
       line.textContent = `Round ${msg.round + 1}: ${msg.requests} request(s), ${msg.captured} useful.`;
     } else if (msg.type === 'done') {
       btn.disabled = false;
-      btn.textContent = 'Fetch my data';
+      btn.textContent = force ? 'Force refresh' : 'Fetch my data';
       port.disconnect();
       if (!msg.ok) {
         line.className = 'notice bad';
@@ -615,8 +615,11 @@ $('fetch').addEventListener('click', () => {
       await load();
     }
   });
-  port.postMessage({ type: 'run' });
-});
+  port.postMessage({ type: 'run', force });
+}
+
+$('fetch').addEventListener('click', () => startFetch(false));
+$('forceFetch').addEventListener('click', () => startFetch(true));
 
 if (location.hash) selectTab(location.hash.slice(1));
 load();

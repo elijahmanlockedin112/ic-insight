@@ -7,7 +7,7 @@ import {
   getData, saveData, getSnapshots, pushSnapshot,
   getNetlog, getAnalyses, pushAnalysis, clearEverything, storageFootprint,
 } from '../common/storage.js';
-import { extract, mergeDataset } from '../common/normalize.js';
+import { extract, mergeDataset, describeShape } from '../common/normalize.js';
 import { analyze, snapshotOf } from '../common/analysis.js';
 import { planRound, gapsIn, describeGaps, kindOfUrl } from './crawler.js';
 import { streamCompletion, listModels, PROVIDERS } from './providers.js';
@@ -36,9 +36,15 @@ async function ingest(origin, batch) {
   // Record when each kind of data last arrived, so a repeat Fetch can skip
   // anything still fresh instead of re-requesting the whole sequence.
   merged.fetchedAt = { ...(merged.fetchedAt || {}) };
+  merged.shapes = { ...(merged.shapes || {}) };
   for (const p of payloads) {
     const kind = kindOfUrl(p.url);
     if (kind) merged.fetchedAt[kind] = p.ts || Date.now();
+    // Key names and nesting only, no values. Recorded regardless of whether any
+    // predicate matched, which is the whole point: when parsing produces
+    // nothing, this still says what the district actually sent.
+    const label = kind || 'other';
+    if (!merged.shapes[label]) merged.shapes[label] = describeShape(p.json);
   }
   await saveData(merged);
 
@@ -394,6 +400,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
           ok: true,
           diagnostic: {
             generatedAt: new Date().toISOString(),
+            payloadShapes: data.shapes || {},
             fieldNamesSeen: data.sampleKeys || {},
             endpointsFetched: Object.keys(data.fetchedAt || {}),
             districtFeatureFlags: data.displayOptions
@@ -408,8 +415,12 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
             },
             courses: report.courses.map((c) => ({
               rigor: c.rigor,
-              icReportedPercent: c.percent,
-              icReportedScore: c.reportedByIC,
+              // What the dashboard shows - may be our estimate.
+              headlinePercent: c.percent,
+              headlineIsOurEstimate: c.isEstimate,
+              // What the school actually reported; null means it sent none.
+              schoolReportedPercent: c.schoolReportedPercent,
+              schoolReportedScore: c.reportedByIC,
               locallyComputedPercent: c.computedPercent,
               drift: c.driftFromIC,
               method: c.method,

@@ -450,6 +450,9 @@ export function analyze(data, settings, snapshots = []) {
       driftFromIC: drift,
       modelDisagrees: drift !== null && Math.abs(drift) > 1.5,
       reportedByIC: task.reportedScore ?? null,
+      // The school's own percentage, or null when it did not supply one. Kept
+      // separate from `percent`, which falls back to our estimate.
+      schoolReportedPercent: reported ?? null,
       cushionToDrop: cushion(percent, scale),
       nextLetter: up ? { letter: up.letter, atPercent: up.floor, gap: round(up.floor - percent, 2) } : null,
       categories: (computed?.categories || []).map((c) => ({
