@@ -1,5 +1,7 @@
 # IC Insight
 
+[![test](https://github.com/elijahmanlockedin112/ic-insight/actions/workflows/test.yml/badge.svg)](https://github.com/elijahmanlockedin112/ic-insight/actions/workflows/test.yml)
+
 A Chrome extension that reads your own Infinite Campus grades, schedule and transcript,
 computes what's actually going on with them, and coaches you toward a goal you set — using
 an AI model and API key you choose.
