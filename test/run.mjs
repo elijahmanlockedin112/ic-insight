@@ -390,6 +390,24 @@ check('imported transcript produces a cumulative GPA',
 check('and splits it by school year', txReport.cumulative.byYear.length, 2);
 check('and totals the credits', txReport.cumulative.credits, 5.5, 0.001);
 
+// Regression: importing worked, but the brief only ever carried aggregate GPA
+// by year - not one prior-year course - while the system prompt told the model
+// transcript contents were unavailable. So the AI stayed blind after a
+// successful import.
+const txBrief = buildBrief(txReport, settings);
+check('every imported course reaches the model',
+  txBrief.transcriptCourses.length, tx.rows.length);
+truthy('with its mark, credits, year and rigor',
+  txBrief.transcriptCourses.every((c) =>
+    c.courseName && c.score && c.credits !== undefined &&
+    c.endYear && c.rigor));
+truthy('the prompt stops claiming the transcript is unavailable once it is there',
+  systemPrompt(settings, { hasTranscript: true }).includes('HAS been imported'));
+truthy('and still says so plainly when it is not',
+  systemPrompt(settings, { hasTranscript: false }).includes('NOT in the brief'));
+truthy('when absent, the model is pointed at the importer',
+  systemPrompt(settings, { hasTranscript: false }).includes('import the transcript'));
+
 // Garbage in, honest answer out.
 const empty = parseTranscriptText('just some prose with no courses in it at all');
 check('unparseable text yields no rows', empty.rows.length, 0);

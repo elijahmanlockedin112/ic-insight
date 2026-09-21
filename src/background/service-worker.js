@@ -278,7 +278,9 @@ async function runAnalysis(port, { question, reset }) {
         provider: settings.provider,
         apiKey,
         model: settings.model,
-        system: systemPrompt(settings),
+        system: systemPrompt(settings, {
+          hasTranscript: (state.brief.transcriptCourses || []).length > 0,
+        }),
         messages: state.messages,
         maxTokens: settings.maxTokens,
         effort: PROVIDERS[settings.provider]?.supportsEffort ? settings.effort : null,

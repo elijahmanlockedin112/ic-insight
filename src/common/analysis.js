@@ -517,6 +517,18 @@ export function analyze(data, settings, snapshots = []) {
     documents: (data.documents || []).map((d) => ({
       name: d.name, type: d.type, endYear: d.endYear,
     })),
+    // The actual prior-year courses. Aggregates alone cannot answer "which
+    // subjects am I strong in" or "where did my GPA slip".
+    transcriptCourses: (data.transcript || []).map((t) => ({
+      courseName: t.courseName,
+      score: t.score,
+      credits: t.creditsEarned,
+      gradeLevel: t.gradeLevel,
+      endYear: t.endYear,
+      rigor: t.rigor,
+      school: t.schoolName || null,
+    })),
+    transcriptSource: data.transcriptSource || (data.transcript || []).length ? 'available' : 'none',
   };
 }
 

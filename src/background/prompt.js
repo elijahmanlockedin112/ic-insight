@@ -125,6 +125,10 @@ export function buildBrief(report, settings) {
       reportedByInfiniteCampus: report.icReportedGpa ?? null,
     },
 
+    // Every prior-year course the transcript supplied. Empty when none has
+    // been imported - the system prompt is told which case applies.
+    transcriptCourses: report.transcriptCourses || [],
+
     goalMath: report.runway,
 
     courses: (report.courses || []).map((c) => ({
@@ -195,7 +199,7 @@ export function buildBrief(report, settings) {
 
 // ------------------------------------------------------------------ prompts
 
-export function systemPrompt(settings) {
+export function systemPrompt(settings, { hasTranscript = false } = {}) {
   const goal = settings.goal || {};
   const preset = GOAL_PRESETS[goal.preset] || GOAL_PRESETS.custom;
   const tone = TONE[goal.tone] || TONE.direct;
@@ -208,12 +212,19 @@ export function systemPrompt(settings) {
     'You are an academic coach for a high school student. You are reading a structured brief',
     'generated from their own Infinite Campus gradebook and schedule.',
     '',
-    'Transcript CONTENTS are not in the brief. Infinite Campus publishes transcripts as PDF',
-    'files and exposes no endpoint that returns their data, so `availableDocuments` lists only',
-    'titles. Cumulative GPA, where present, covers only the terms the grades endpoint returned -',
-    'usually the current year. Never present it as a full high-school GPA, never infer prior-year',
-    'grades or credits, and when the student needs multi-year figures, say the transcript PDF has',
-    'to be opened in the portal.',
+    hasTranscript
+      ? 'The transcript HAS been imported. `transcriptCourses` holds every prior-year course with ' +
+        'its mark, credits, school year and grade level, and the cumulative GPA figures are ' +
+        'computed from them. Use this for multi-year questions: which subjects the student is ' +
+        'consistently strong or weak in, when a slide began, how rigor has changed year over ' +
+        'year, and what a target GPA now demands. These are real records - do not hedge about ' +
+        'them or tell the student to go and check the PDF.'
+      : 'Transcript CONTENTS are NOT in the brief. Infinite Campus publishes transcripts as PDF ' +
+        'files and exposes no endpoint that returns their data, so `availableDocuments` lists ' +
+        'only titles and `transcriptCourses` is empty. Cumulative GPA, where present, covers only ' +
+        'the terms the grades endpoint returned - usually the current year. Never present it as a ' +
+        'full high-school GPA and never infer prior-year grades or credits. Tell the student they ' +
+        'can import the transcript from the dashboard to unlock multi-year analysis.',
     '',
     '## The student\'s goal',
     preset.label + (preset.brief ? ': ' + preset.brief : ''),
